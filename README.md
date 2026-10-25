@@ -54,6 +54,8 @@ SnapSloth reads every screenshot with a **local AI model** (Gemma 4 through Olla
 
 ## Demo
 
+🎥 **[Watch the demo video](https://drive.google.com/file/d/1CJxGJh5Il-MWysdkDQXCpUQOvMOhRJoM/view?usp=sharing)**
+
 ![SnapSloth: my screenshots, understood and searchable](docs/ui-browse.png)
 
 ## Setup: one command
