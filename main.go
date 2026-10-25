@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 )
 
 const usageText = `snapsloth 🦥  for every screenshot you said "baad mai" to
@@ -19,6 +20,10 @@ Commands:
                   [--model gemma4:e4b] [--host URL] [--limit N] [--dry-run]
   sort <dir>      move into sorted/<category>/YYYY-MM-DD_<title>.<ext> [--dry-run]
   undo <dir>      reverse the last sort [--dry-run]
+  search <dir> "<query>"
+                  find screenshots by title, summary, text or category [--limit N]
+  risky <dir>     list screenshots with OTPs, bank/ID details, passwords...
+  report <dir>    morning summary (cron it into ~/snapsloth-morning.txt)
   help           show this help
 `
 
@@ -36,6 +41,12 @@ func main() {
 		err = cmdSort(args)
 	case "undo":
 		err = cmdUndo(args)
+	case "search":
+		err = cmdSearch(args)
+	case "risky":
+		err = cmdRisky(args)
+	case "report":
+		err = cmdReport(args)
 	case "help", "-h", "--help":
 		fmt.Print(usageText)
 	default:
@@ -77,5 +88,6 @@ func dirArg(pos []string, n int, usage string) (string, error) {
 	if !info.IsDir() {
 		return "", errors.New(pos[0] + " is not a directory")
 	}
-	return pos[0], nil
+	// Absolute, so printed paths still work from a cron-written report.
+	return filepath.Abs(pos[0])
 }
