@@ -186,10 +186,13 @@ nothing is ever overwritten, and every move is logged so *Undo* can put it all b
 `crontab -e`, add this line:
 
 ```cron
-0 2 * * * $HOME/go/bin/snapsloth scan $HOME/Pictures/Screenshots && $HOME/go/bin/snapsloth sort $HOME/Pictures/Screenshots; $HOME/go/bin/snapsloth report $HOME/Pictures/Screenshots > $HOME/snapsloth-morning.txt 2>&1
+0 2 * * * S=$HOME/.local/bin/snapsloth D=$HOME/Pictures/Screenshots; { $S scan $D && $S sort $D; } > $HOME/snapsloth-morning.txt 2>&1; $S report $D >> $HOME/snapsloth-morning.txt 2>&1
 ```
 
-Morning: open `~/snapsloth-morning.txt` (or `snapsloth ui`) with your chai. The laptop has to be awake at 2 AM.
+(Installed with `go install`? Use `S=$HOME/go/bin/snapsloth`. `which snapsloth` tells you.)
+
+Morning: open `~/snapsloth-morning.txt` (or `snapsloth ui`) with your chai. If the scan couldn't
+run (say Ollama was off), the reason is at the top of that file. The laptop has to be awake at 2 AM.
 
 Phone screenshots? Sync them to your laptop with [Syncthing](https://syncthing.net/) (local, no cloud).
 
