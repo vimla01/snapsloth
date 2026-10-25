@@ -24,6 +24,8 @@ Commands:
                   find screenshots by title, summary, text or category [--limit N]
   risky <dir>     list screenshots with OTPs, bank/ID details, passwords...
   report <dir>    morning summary (cron it into ~/snapsloth-morning.txt)
+  eval <dir> labels.csv
+                  accuracy vs your labels (filename,category) [--init writes a blank labels.csv]
   help           show this help
 `
 
@@ -47,6 +49,8 @@ func main() {
 		err = cmdRisky(args)
 	case "report":
 		err = cmdReport(args)
+	case "eval":
+		err = cmdEval(args)
 	case "help", "-h", "--help":
 		fmt.Print(usageText)
 	default:
