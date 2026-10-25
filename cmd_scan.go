@@ -28,6 +28,7 @@ type scanJob struct{ rel, hash string }
 // ScanPlan is what a scan would do: which files are new and which are known.
 type ScanPlan struct {
 	Files, Known, Dups int
+	Removed            int // index entries whose file was deleted
 	Todo               []scanJob
 }
 
@@ -50,14 +51,17 @@ func planScan(dir string, idx *Index) (*ScanPlan, error) {
 	}
 	p := &ScanPlan{Files: len(files)}
 	seen := map[string]bool{}
+	onDisk := map[string]bool{}
 	for _, rel := range files {
 		h, err := hashFile(filepath.Join(dir, rel))
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "skip %s: %v\n", rel, err)
 			continue
 		}
+		onDisk[h] = true
 		if e, ok := idx.Entries[h]; ok {
 			e.Path = rel // follow files the user moved by hand
+			safetyCheck(e)
 			p.Known++
 			continue
 		}
@@ -67,6 +71,26 @@ func planScan(dir string, idx *Index) (*ScanPlan, error) {
 		}
 		seen[h] = true
 		p.Todo = append(p.Todo, scanJob{rel, h})
+	}
+	// Newest first: recent screenshots are the ones still worth acting on,
+	// so the report is useful long before a big backlog is done.
+	dates := map[string]string{}
+	for _, j := range p.Todo {
+		dates[j.rel] = captureDate(filepath.Join(dir, j.rel))
+	}
+	slices.SortStableFunc(p.Todo, func(a, b scanJob) int {
+		if c := strings.Compare(dates[b.rel], dates[a.rel]); c != 0 {
+			return c
+		}
+		return strings.Compare(b.rel, a.rel)
+	})
+
+	// Forget screenshots the user deleted, so they stop showing up.
+	for h, e := range idx.Entries {
+		if !onDisk[h] && !exists(filepath.Join(dir, e.Path)) {
+			delete(idx.Entries, h)
+			p.Removed++
+		}
 	}
 	return p, nil
 }
@@ -96,8 +120,7 @@ func runScan(ctx context.Context, dir string, idx *Index, client *OllamaClient, 
 			continue
 		}
 		e := newEntry(a, j.hash, j.rel, captureDate(path), client.Model, took)
-		idx.Entries[j.hash] = e
-		if err := idx.Save(); err != nil {
+		if err := idx.Put(e); err != nil {
 			return err
 		}
 		ev.Entry = e
@@ -130,10 +153,18 @@ func cmdScan(args []string) error {
 	if err != nil {
 		return err
 	}
+	if !*dryRun {
+		if err := idx.Save(); err != nil {
+			return err
+		}
+	}
 	todo := plan.Todo
 	fmt.Printf("%d screenshots: %d already indexed, %d new", plan.Files, plan.Known, len(todo))
 	if plan.Dups > 0 {
 		fmt.Printf(", %d exact duplicates skipped", plan.Dups)
+	}
+	if plan.Removed > 0 {
+		fmt.Printf(", %d deleted ones forgotten", plan.Removed)
 	}
 	fmt.Println()
 	if *limit > 0 && len(todo) > *limit {
@@ -199,38 +230,68 @@ func cmdScan(args []string) error {
 	return nil
 }
 
-// newEntry merges the model's answer with the regex backup and masks every
-// sensitive value before anything is stored.
+// newEntry turns the model's answer into an index entry, with every
+// sensitive value masked before anything is stored.
 func newEntry(a *Analysis, hash, rel, date, model string, took time.Duration) *Entry {
-	text, findings := Scrub(a.Text)
-	title, f2 := Scrub(a.Title)
-	summary, f3 := Scrub(a.Summary)
-	for _, f := range append(f2, f3...) {
-		if !slices.Contains(findings, f) {
-			findings = append(findings, f)
-		}
-	}
-
-	types := slices.Clone(a.SensitiveTypes)
-	for _, t := range FindingTypes(findings) {
-		if !slices.Contains(types, t) {
-			types = append(types, t)
-		}
-	}
-	return &Entry{
+	e := &Entry{
 		Hash:           hash,
 		Path:           rel,
 		OrigName:       filepath.Base(rel),
 		Date:           date,
 		Category:       a.Category,
-		Title:          strings.TrimSpace(title),
-		Summary:        strings.TrimSpace(summary),
-		Text:           text,
-		Sensitive:      a.Sensitive || len(findings) > 0,
-		SensitiveTypes: types,
-		Findings:       findings,
+		Title:          strings.TrimSpace(a.Title),
+		Summary:        strings.TrimSpace(a.Summary),
+		Text:           a.Text,
+		Todo:           cleanTodo(a.Todo),
+		Sensitive:      a.Sensitive,
+		SensitiveTypes: slices.Clone(a.SensitiveTypes),
 		Model:          model,
 		Seconds:        took.Seconds(),
 		ScannedAt:      time.Now(),
 	}
+	safetyCheck(e)
+	return e
+}
+
+// safetyCheck runs the regex backup over an entry: masks values, adds what it
+// found, and files ID cards as ID documents. Masked text doesn't match again,
+// so it's safe to rerun on old entries whenever detection improves.
+func safetyCheck(e *Entry) {
+	for _, field := range []*string{&e.Text, &e.Title, &e.Summary, &e.Todo} {
+		masked, found := Scrub(*field)
+		*field = masked
+		for _, f := range found {
+			if !slices.Contains(e.Findings, f) {
+				e.Findings = append(e.Findings, f)
+			}
+		}
+	}
+	// An ID card is sensitive even when its number isn't visible, and it
+	// belongs with the other ID documents whatever the model called it
+	// (unless the user picked a category themselves).
+	if kind := IDCardKind(e.Text + " " + e.Title + " " + e.Summary); kind != "" {
+		if !e.Reviewed && e.Category != "id_document" {
+			e.ModelCategory, e.Category = e.Category, "id_document"
+		}
+		if !slices.ContainsFunc(e.Findings, func(x Finding) bool { return x.Type == kind }) {
+			e.Findings = append(e.Findings, Finding{Type: kind, Masked: "ID card with name and date of birth"})
+		}
+	}
+	for _, t := range FindingTypes(e.Findings) {
+		if !slices.Contains(e.SensitiveTypes, t) {
+			e.SensitiveTypes = append(e.SensitiveTypes, t)
+		}
+	}
+	e.Sensitive = e.Sensitive || len(e.Findings) > 0
+}
+
+// cleanTodo drops the ways a model says "nothing to do" without leaving the
+// field empty.
+func cleanTodo(s string) string {
+	s = strings.TrimSpace(s)
+	switch strings.ToLower(strings.Trim(s, ".!- ")) {
+	case "", "none", "null", "nil", "n/a", "na", "no", "nothing", "no action", "no action needed", "not applicable":
+		return ""
+	}
+	return s
 }

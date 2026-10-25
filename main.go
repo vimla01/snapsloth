@@ -26,8 +26,9 @@ Commands:
                   find screenshots by title, summary, text or category [--limit N]
   risky <dir>     list screenshots with OTPs, bank/ID details, passwords...
   report <dir>    morning summary (cron it into ~/snapsloth-morning.txt)
-  eval <dir> labels.csv
-                  accuracy vs your labels (filename,category) [--init writes a blank labels.csv]
+  eval <dir> [labels.csv]
+                  accuracy vs the categories you checked in the UI, or vs labels.csv
+                  (filename,category) [--init writes a blank labels.csv]
   help            show this help
 `
 

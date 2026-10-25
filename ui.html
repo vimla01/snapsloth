@@ -6,6 +6,9 @@
 <title>SnapSloth</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🦥</text></svg>">
 <style>
+  /* Google Sans (SIL OFL, fonts/OFL.txt), bundled so the page works offline. */
+  @font-face { font-family: "Google Sans"; font-style: normal; font-weight: 400 700; font-display: swap; src: url(/fonts/google-sans-latin-ext.woff2) format("woff2"); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+  @font-face { font-family: "Google Sans"; font-style: normal; font-weight: 400 700; font-display: swap; src: url(/fonts/google-sans-latin.woff2) format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
   :root {
     --bg: #f7f4ee;
     --card: #ffffff;
@@ -27,7 +30,7 @@
   * { box-sizing: border-box; }
   body {
     margin: 0; background: var(--bg); color: var(--ink);
-    font: 15px/1.5 ui-rounded, "SF Pro Rounded", "Nunito", "Segoe UI", system-ui, -apple-system, sans-serif;
+    font: 15px/1.5 "Google Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
     -webkit-font-smoothing: antialiased;
   }
   .wrap { max-width: 1120px; margin: 0 auto; padding: 28px 20px 80px; }
@@ -164,6 +167,9 @@
   .reveal { position: absolute; inset: 0; display: grid; place-items: center; }
   .detail pre { white-space: pre-wrap; word-break: break-word; background: #faf8f3; border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; max-height: 300px; overflow: auto; margin: 6px 0 0; }
   .kv { font-size: 13px; color: var(--muted); margin: 12px 0 4px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+  .todo { color: #8a5a10; font-weight: 600; }
+  .review { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .hint { color: var(--faint); font-size: 12.5px; margin-top: 6px; }
   .path { font-size: 12.5px; color: var(--muted); word-break: break-all; }
   .moves { border: 1px solid var(--line); border-radius: 12px; max-height: 50vh; overflow: auto; }
   .move { display: grid; grid-template-columns: 1fr auto 1.3fr; gap: 10px; padding: 9px 14px; border-bottom: 1px solid var(--line); font-size: 13px; align-items: center; }
@@ -331,7 +337,9 @@ function renderStatus() {
   $("#sRisk").textContent = r.risky;
   $("#riskBadge").textContent = r.risky;
   $("#sTime").textContent = dur(r.model_seconds);
-  $("#sTimeL").textContent = r.total ? `model time · ${(r.model_seconds / r.total).toFixed(1)} s per image` : "model time";
+  // Recent speed, not the all-time average: one slow first run shouldn't stick.
+  const per = S.recent_seconds || (r.total && r.model_seconds / r.total);
+  $("#sTimeL").textContent = per ? `model time · ~${Math.round(per)} s per image` : "model time";
   $("#undoBtn").disabled = !S.can_undo || S.job?.running;
   $("#sortBtn").disabled = !r.total || S.job?.running;
   renderScanCard();
@@ -341,7 +349,7 @@ function renderScanCard() {
   const j = S.job, c = $("#scanCard");
   if (j && j.running) {
     const pct = Math.round(100 * j.i / j.n);
-    const avg = j.done ? j.seconds / j.done : 20;
+    const avg = j.done ? j.seconds / j.done : S.recent_seconds || 75;
     const left = (j.n - j.i) * avg;
     c.innerHTML = `
       <h3><span class="sloth-walk">🦥</span> Reading screenshots… ${j.i} / ${j.n}</h3>
@@ -352,7 +360,7 @@ function renderScanCard() {
     return;
   }
   const n = S.pending;
-  const est = n * ((S.report.total && S.report.model_seconds / S.report.total) || 20);
+  const est = n * (S.recent_seconds || 75);
   let done = "";
   if (j && !j.running && j.done + j.failed > 0) done = `<p style="flex:0;color:var(--moss)">✓ Last scan: ${j.done} done${j.failed ? `, ${j.failed} failed` : ""} in ${dur(j.seconds)}.</p>`;
   if (j && j.error) done += `<p style="flex:0;color:var(--risk)">${esc(j.error)}</p>`;
@@ -401,7 +409,7 @@ function renderOverview() {
         ${r.forgotten.length ? r.forgotten.map(e => `
           <div class="forgot" onclick="openDetail('${esc(e.hash)}')">
             ${thumb(e)}
-            <div><div class="t">${esc(e.title)}</div><div class="s">${esc(e.summary)}</div><div style="margin-top:5px">${tag(e.category)} <span class="date">${esc(e.date)}</span></div></div>
+            <div><div class="t">${esc(e.title)}</div><div class="s">${e.todo ? `<span class="todo">→ ${esc(e.todo)}</span>` : esc(e.summary)}</div><div style="margin-top:5px">${tag(e.category)} <span class="date">${esc(e.date)}</span></div></div>
           </div>`).join("") : `<p class="sub">Nothing pending. Look at you, all organised. 🎉</p>`}
       </div>
       <div class="card panel">
@@ -458,6 +466,16 @@ function switchTab(t) {
   ["overview", "browse", "risky"].forEach(x => $("#tab-" + x).hidden = x !== t);
   history.replaceState(null, "", t === "overview" ? location.pathname : "#" + t);
 }
+async function review(h) {
+  try {
+    const r = await api("/api/review/" + h, { category: $("#revCat").value });
+    Object.assign(byHash[h] || {}, r.entry);
+    $("#revBtn").textContent = "✓ Checked";
+    $("#revBtn").classList.remove("primary");
+    toast(`Saved. ${r.reviewed} checked so far${r.reviewed >= 30 ? " · enough for snapsloth eval" : ""}`);
+    lastSig = ""; refresh();
+  } catch (e) { toast(e.message); }
+}
 async function reveal(h) { try { await api("/api/reveal/" + h, {}); toast("Opened the folder in your file manager"); } catch (e) { toast(e.message); } }
 
 function openModal(html) { $("#modal").innerHTML = html; $("#scrim").classList.add("open"); }
@@ -477,6 +495,13 @@ function openDetail(h) {
       </div>
       <div>
         <div class="kv">Why you saved it</div><div>${esc(e.summary)}</div>
+        ${e.todo ? `<div class="kv">Still to do</div><div class="todo">→ ${esc(e.todo)}</div>` : ""}
+        <div class="kv">Is the category right?</div>
+        <div class="review">
+          <select id="revCat" onchange="$('#revBtn').textContent='Save'">${Object.keys(CATS).map(c => `<option value="${c}" ${c === e.category ? "selected" : ""}>${cat(c)[0]} ${esc(cat(c)[1])}</option>`).join("")}</select>
+          <button class="btn small ${e.reviewed ? "" : "primary"}" id="revBtn" onclick="review('${esc(e.hash)}')">${e.reviewed ? "✓ Checked" : "✓ Looks right"}</button>
+        </div>
+        <div class="hint">Your answers fix sorting and count as labels for <code>snapsloth eval</code>.</div>
         ${e.sensitive ? `<div class="kv" style="color:var(--risk)">Sensitive</div><div class="why" style="color:var(--risk);font-size:14px">⚠️ ${esc(e.reason || "")}</div>` : ""}
         <div class="kv">Text in the image ${e.sensitive ? "(masked)" : ""}</div><pre>${esc(e.text) || "<i>no text</i>"}</pre>
         <div class="kv">File</div><div class="path">${esc(S.home && e.abs?.startsWith(S.home + "/") ? "~" + e.abs.slice(S.home.length) : e.abs || e.path)}</div>

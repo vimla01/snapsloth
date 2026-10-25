@@ -42,3 +42,6 @@ labels*.csv
 *.webp
 # ...except demo images in docs/ (check they show no real personal data first)
 !docs/**
+
+# release binaries (published as GitHub Release assets, not committed)
+/dist/

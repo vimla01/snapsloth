@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	_ "embed"
+	"embed"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -22,6 +22,9 @@ import (
 //go:embed ui.html
 var uiHTML []byte
 
+//go:embed fonts/*.woff2
+var uiFonts embed.FS
+
 // uiJob is the state of the scan running in the background, if any.
 type uiJob struct {
 	Running   bool      `json:"running"`
@@ -36,6 +39,7 @@ type uiJob struct {
 	Error     string    `json:"error"`
 	StartedAt time.Time `json:"started_at"`
 	cancel    context.CancelFunc
+	idx       *Index // the scan's index, so reviews during a scan aren't overwritten
 }
 
 type uiServer struct {
@@ -104,12 +108,18 @@ func listenLocal(port int) (net.Listener, error) {
 	return nil, err
 }
 
+// openInOS opens a URL in the browser or a folder in the file manager.
 func openInOS(target string) {
-	cmd := "xdg-open"
-	if runtime.GOOS == "darwin" {
-		cmd = "open"
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("open", target)
+	case "windows":
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", target)
+	default:
+		cmd = exec.Command("xdg-open", target)
 	}
-	_ = exec.Command(cmd, target).Start()
+	_ = cmd.Start()
 }
 
 func (s *uiServer) routes() http.Handler {
@@ -118,6 +128,7 @@ func (s *uiServer) routes() http.Handler {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Write(uiHTML)
 	})
+	mux.Handle("GET /fonts/", http.FileServerFS(uiFonts))
 	mux.HandleFunc("GET /api/status", s.handleStatus)
 	mux.HandleFunc("GET /api/entries", s.handleEntries)
 	mux.HandleFunc("GET /api/img/{hash}", s.handleImage)
@@ -128,6 +139,7 @@ func (s *uiServer) routes() http.Handler {
 	mux.HandleFunc("POST /api/sort", s.handleSort)
 	mux.HandleFunc("POST /api/undo", s.handleUndo)
 	mux.HandleFunc("POST /api/reveal/{hash}", s.handleReveal)
+	mux.HandleFunc("POST /api/review/{hash}", s.handleReview)
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Only our own page may talk to us: a wrong Host means DNS rebinding,
@@ -229,6 +241,7 @@ func (s *uiServer) handleStatus(w http.ResponseWriter, r *http.Request) {
 		out["files"] = len(files)
 		out["pending"] = pending
 		out["report"] = buildReport(idx, time.Now())
+		out["recent_seconds"] = recentSeconds(idx)
 		out["can_undo"] = log != nil && log.lastActive() != nil
 	}
 	writeJSON(w, out)
@@ -388,6 +401,12 @@ func (s *uiServer) handleScan(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
+	// Save now, so moved files and improved safety checks apply right away
+	// rather than after the first screenshot.
+	if err := idx.Save(); err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
 	todo := plan.Todo
 	if req.Limit > 0 && len(todo) > req.Limit {
 		todo = todo[:req.Limit]
@@ -399,7 +418,7 @@ func (s *uiServer) handleScan(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	job := &uiJob{Running: true, N: len(todo), StartedAt: time.Now(), cancel: cancel, Recent: []*Entry{}, Errors: []string{}}
+	job := &uiJob{Running: true, N: len(todo), StartedAt: time.Now(), cancel: cancel, idx: idx, Recent: []*Entry{}, Errors: []string{}}
 	job.Current = todo[0].rel
 	s.mu.Lock()
 	s.job = job
@@ -507,4 +526,62 @@ func (s *uiServer) handleUndo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]any{"moved": back, "skipped": skipped})
+}
+
+// recentSeconds is the median model time of the last 10 screenshots, for
+// time estimates: the all-time average is skewed by a slow first run.
+func recentSeconds(idx *Index) float64 {
+	entries := idx.Sorted()
+	slices.SortFunc(entries, func(a, b *Entry) int { return a.ScannedAt.Compare(b.ScannedAt) })
+	entries = entries[max(0, len(entries)-10):]
+	if len(entries) == 0 {
+		return 0
+	}
+	secs := make([]float64, len(entries))
+	for i, e := range entries {
+		secs[i] = e.Seconds
+	}
+	slices.Sort(secs)
+	return secs[len(secs)/2]
+}
+
+// handleReview stores the user's category for a screenshot. During a scan it
+// edits the scan's own index, which is about to be saved anyway.
+func (s *uiServer) handleReview(w http.ResponseWriter, r *http.Request) {
+	var req struct{ Category string }
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || !slices.Contains(categories, req.Category) {
+		writeErr(w, http.StatusBadRequest, errors.New("unknown category"))
+		return
+	}
+	dir, err := s.currentDir()
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	s.mu.Lock()
+	var idx *Index
+	if s.job != nil && s.job.Running {
+		idx = s.job.idx
+	}
+	s.mu.Unlock()
+	if idx == nil {
+		if idx, err = LoadIndex(dir); err != nil {
+			writeErr(w, http.StatusInternalServerError, err)
+			return
+		}
+	}
+	e, err := idx.Review(r.PathValue("hash"), req.Category)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, err)
+		return
+	}
+	idx.mu.Lock()
+	reviewed := 0
+	for _, x := range idx.Entries {
+		if x.Reviewed {
+			reviewed++
+		}
+	}
+	idx.mu.Unlock()
+	writeJSON(w, map[string]any{"entry": e, "reviewed": reviewed})
 }

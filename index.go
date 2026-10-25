@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -29,18 +30,25 @@ type Entry struct {
 	Title          string    `json:"title"`
 	Summary        string    `json:"summary"`
 	Text           string    `json:"text"`
+	Todo           string    `json:"todo,omitempty"` // what's still to do, per the model
 	Sensitive      bool      `json:"sensitive"`
 	SensitiveTypes []string  `json:"sensitive_types"`
 	Findings       []Finding `json:"findings,omitempty"` // regex hits, masked
 	Model          string    `json:"model"`
 	Seconds        float64   `json:"seconds"`
 	ScannedAt      time.Time `json:"scanned_at"`
+
+	// Set when the user checks or fixes the category in the UI. These
+	// double as labels for `eval`.
+	Reviewed      bool   `json:"reviewed,omitempty"`
+	ModelCategory string `json:"model_category,omitempty"` // the model's answer, if the user changed it
 }
 
 type Index struct {
 	Version int               `json:"version"`
 	Entries map[string]*Entry `json:"entries"` // by SHA-256 of the file
 	path    string
+	mu      sync.Mutex // the UI edits entries while a scan is saving
 }
 
 func indexPath(dir string) string { return filepath.Join(dir, stateDir, "index.json") }
@@ -66,7 +74,45 @@ func LoadIndex(dir string) (*Index, error) {
 
 // Save writes the index atomically, so a crash mid-write never corrupts it.
 func (idx *Index) Save() error {
+	idx.mu.Lock()
+	defer idx.mu.Unlock()
 	return writeJSONAtomic(idx.path, idx)
+}
+
+// Put adds or replaces an entry and saves.
+func (idx *Index) Put(e *Entry) error {
+	idx.mu.Lock()
+	idx.Entries[e.Hash] = e
+	idx.mu.Unlock()
+	return idx.Save()
+}
+
+// Review records the user's category for an entry and saves.
+func (idx *Index) Review(hash, category string) (*Entry, error) {
+	idx.mu.Lock()
+	e, ok := idx.Entries[hash]
+	if ok {
+		if category != e.Category && e.ModelCategory == "" {
+			e.ModelCategory = e.Category
+		}
+		if category == e.ModelCategory {
+			e.ModelCategory = "" // changed back to what the model said
+		}
+		e.Category, e.Reviewed = category, true
+	}
+	idx.mu.Unlock()
+	if !ok {
+		return nil, errors.New("not in the index")
+	}
+	return e, idx.Save()
+}
+
+// ModelSaid is the category the model gave, even if the user changed it since.
+func (e *Entry) ModelSaid() string {
+	if e.ModelCategory != "" {
+		return e.ModelCategory
+	}
+	return e.Category
 }
 
 // Sorted returns entries ordered by date, then path, for stable output.

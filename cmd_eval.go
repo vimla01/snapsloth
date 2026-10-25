@@ -24,16 +24,19 @@ func cmdEval(args []string) error {
 	if err != nil {
 		return err
 	}
-	if len(pos) != 2 {
-		return errors.New("usage: snapsloth eval <dir> labels.csv [--init]")
+	if len(pos) < 1 || len(pos) > 2 || (*initCSV && len(pos) != 2) {
+		return errors.New("usage: snapsloth eval <dir> [labels.csv] [--init]")
 	}
-	dir, err := dirArg(pos[:1], 1, "eval <dir> labels.csv")
+	dir, err := dirArg(pos[:1], 1, "eval <dir> [labels.csv]")
 	if err != nil {
 		return err
 	}
 	idx, err := LoadIndex(dir)
 	if err != nil {
 		return err
+	}
+	if len(pos) == 1 {
+		return evalReviewed(idx)
 	}
 	if *initCSV {
 		return writeLabelTemplate(pos[1], idx)
@@ -59,7 +62,7 @@ func cmdEval(args []string) error {
 			notScanned = append(notScanned, l[0])
 			continue
 		}
-		results = append(results, labelResult{l[0], l[1], e.Category, e.Title})
+		results = append(results, labelResult{l[0], l[1], e.ModelSaid(), e.Title})
 		seconds += e.Seconds
 	}
 	if len(results) == 0 {
@@ -69,6 +72,25 @@ func cmdEval(args []string) error {
 	if len(notScanned) > 0 {
 		fmt.Printf("\n%d labelled files aren't indexed yet (scan them first): %s\n", len(notScanned), strings.Join(notScanned[:min(5, len(notScanned))], ", "))
 	}
+	return nil
+}
+
+// evalReviewed scores the model against the categories the user checked or
+// fixed in the UI.
+func evalReviewed(idx *Index) error {
+	var results []labelResult
+	var seconds float64
+	for _, e := range idx.Sorted() {
+		if e.Reviewed {
+			results = append(results, labelResult{e.OrigName, e.Category, e.ModelSaid(), e.Title})
+			seconds += e.Seconds
+		}
+	}
+	if len(results) == 0 {
+		return errors.New("no reviewed screenshots yet: open `snapsloth ui`, click screenshots and press \"Looks right\" or fix the category (or pass a labels.csv)")
+	}
+	fmt.Printf("Using the %d screenshots you checked in the UI.\n\n", len(results))
+	printEval(results, seconds)
 	return nil
 }
 

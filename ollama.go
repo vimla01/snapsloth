@@ -28,6 +28,7 @@ type Analysis struct {
 	Title          string   `json:"title"`
 	Summary        string   `json:"summary"`
 	Text           string   `json:"text"`
+	Todo           string   `json:"todo"`
 	Sensitive      bool     `json:"sensitive"`
 	SensitiveTypes []string `json:"sensitive_types"`
 }
@@ -41,10 +42,11 @@ var analysisSchema = map[string]any{
 		"title":           map[string]any{"type": "string"},
 		"summary":         map[string]any{"type": "string"},
 		"text":            map[string]any{"type": "string"},
+		"todo":            map[string]any{"type": "string"},
 		"sensitive":       map[string]any{"type": "boolean"},
 		"sensitive_types": map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": sensitiveTypes}},
 	},
-	"required": []string{"category", "title", "summary", "text", "sensitive", "sensitive_types"},
+	"required": []string{"category", "title", "summary", "text", "todo", "sensitive", "sensitive_types"},
 }
 
 const analysisPrompt = `You are sorting a student's phone/laptop screenshots (India). For each screenshot, reply with JSON only.
@@ -59,15 +61,16 @@ category, pick exactly one:
 - shopping: product page, cart, order, delivery status
 - code_or_error: code, terminal, stack trace, error dialog
 - ticket_or_booking: train/bus/flight/movie ticket, PNR, hotel booking
-- id_document: Aadhaar, PAN, college ID, licence, any ID card
+- id_document: photo or scan of an Aadhaar, PAN, college ID, licence or any ID card (even a sample)
 - social_post: tweet, Instagram/LinkedIn/Reddit post
 - notes_or_study: notes, slides, textbook page, question paper
 - other: anything else
 
 title: short 3-6 word title.
 summary: one line, what it is and why the person probably saved it.
-text: the important readable text in the image, as plain text, at most about 50 words, most important first. Skip menus, buttons, tabs and status bars.
-sensitive: true only if the image actually shows a real OTP, bank account or card number, UPI ID, Aadhaar or PAN number, password, phone number or home address. Ordinary numbers (process IDs, prices, dates, versions, stats) are not sensitive.
+text: the key text in the image, at most 25 words: names, amounts, dates, numbers and the words someone would search for. Skip menus, buttons, tabs and status bars.
+todo: if this screenshot means the person still has something to do (pay, submit, register, attend, travel, return, reply), a short to-do with any deadline, e.g. "Pay hostel fee by 30 Oct". Otherwise an empty string.
+sensitive: true only if the image actually shows a real OTP, bank account or card number, UPI ID, Aadhaar or PAN number, password, phone number or home address, or any ID card (a name with date of birth on an ID counts even without the number). Ordinary numbers (process IDs, prices, dates, versions, stats) are not sensitive.
 sensitive_types: which of those it shows (empty list if none).`
 
 type OllamaClient struct {
@@ -134,7 +137,7 @@ type generateRequest struct {
 // Analyze sends one image to the model and returns its parsed answer.
 func (c *OllamaClient) Analyze(ctx context.Context, image []byte) (*Analysis, error) {
 	req := generateRequest{
-		Model:   c.Model,
+		Model: c.Model,
 		// The instructions go in the system prompt, ahead of the image, so
 		// Ollama can reuse them from cache instead of re-reading ~370 tokens
 		// for every screenshot.
@@ -143,7 +146,7 @@ func (c *OllamaClient) Analyze(ctx context.Context, image []byte) (*Analysis, er
 		Images:  []string{base64.StdEncoding.EncodeToString(shrinkForModel(image, c.ImageSize))},
 		Stream:  false,
 		Format:  analysisSchema,
-		Options: map[string]any{"temperature": 0.1, "num_predict": 768},
+		Options: map[string]any{"temperature": 0.1, "num_predict": 512},
 	}
 	if !c.noThink {
 		req.Think = new(false)

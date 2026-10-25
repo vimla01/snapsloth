@@ -34,6 +34,25 @@ var (
 	ctxAadhaar = regexp.MustCompile(`(?i)aadhaa?r|uidai|\bvid\b|आधार`)
 )
 
+var (
+	reAadhaarCard = regexp.MustCompile(`(?i)aadhaa?r|आधार|uidai|unique identification authority`)
+	rePANCard     = regexp.MustCompile(`(?i)income tax department|permanent account number|आयकर विभाग`)
+	rePersonal    = regexp.MustCompile(`(?i)\bdob\b|date of birth|year of birth|जन्म|\b(fe)?male\b|पुरुष|महिला|father'?s name`)
+)
+
+// IDCardKind spots a photo of an Aadhaar or PAN card from its text, even when
+// the number itself isn't readable: a name plus date of birth on an ID card
+// is enough to misuse. It returns "aadhaar", "pan" or "".
+func IDCardKind(text string) string {
+	switch {
+	case rePANCard.MatchString(text):
+		return "pan"
+	case reAadhaarCard.MatchString(text) && rePersonal.MatchString(text):
+		return "aadhaar"
+	}
+	return ""
+}
+
 // Scrub finds sensitive values in text and returns the text with each of them
 // masked, plus what was found. It is a regex backup to the model: dumb, but it
 // never forgets to look.
@@ -110,8 +129,9 @@ func detectSpans(text string) []span {
 		add(span{m[0], m[1], "pan", "XXXXXXXX" + v[8:]})
 	}
 	for _, m := range reUPI.FindAllStringIndex(text, -1) {
-		// name@gmail.com is an email, not a UPI ID.
-		if m[1] < len(text) && text[m[1]] == '.' {
+		// name@gmail.com is an email, not a UPI ID; "...@paytm. Next" is a UPI
+		// ID ending a sentence.
+		if m[1]+1 < len(text) && text[m[1]] == '.' && isASCIILetter(text[m[1]+1]) {
 			continue
 		}
 		v := text[m[0]:m[1]]
@@ -220,3 +240,5 @@ func verhoeffValid(digits string) bool {
 	}
 	return len(digits) > 0 && c == 0
 }
+
+func isASCIILetter(c byte) bool { return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' }

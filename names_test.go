@@ -65,3 +65,14 @@ func TestUniquePath(t *testing.T) {
 		t.Errorf("clash = %q, want -3", got)
 	}
 }
+
+func TestCleanTodo(t *testing.T) {
+	for _, in := range []string{"", "None", "null", " N/A ", "Nothing.", "no action needed"} {
+		if got := cleanTodo(in); got != "" {
+			t.Errorf("cleanTodo(%q) = %q, want empty", in, got)
+		}
+	}
+	if got := cleanTodo(" Pay hostel fee by 30 Oct "); got != "Pay hostel fee by 30 Oct" {
+		t.Errorf("cleanTodo kept wrong text: %q", got)
+	}
+}

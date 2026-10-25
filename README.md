@@ -11,7 +11,7 @@ Sorts, searches and safety-checks your screenshots with a local AI model, while 
 [![Offline](https://img.shields.io/badge/runs-100%25%20offline-3f6b4f)](#privacy)
 [![License: MIT](https://img.shields.io/badge/license-MIT-lightgrey)](LICENSE)
 
-[Setup](#setup-5-minutes--model-download) · [Using the app](#using-the-app) · [Lazy mode](#lazy-mode-every-night-at-2-am-) · [Privacy](#privacy)
+[Setup](#setup-one-command) · [Using the app](#using-the-app) · [Lazy mode](#lazy-mode-every-night-at-2-am-) · [Privacy](#privacy)
 
 </div>
 
@@ -56,19 +56,42 @@ SnapSloth reads every screenshot with a **local AI model** (Gemma 4 through Olla
 
 ![SnapSloth: my screenshots, understood and searchable](docs/ui-browse.png)
 
-## Setup (5 minutes + model download)
+## Setup: one command
+
+It installs Ollama (the local model runner) if you don't have it, downloads the model (~5.5 GB,
+once), and installs SnapSloth.
+
+**Linux / macOS** (Terminal):
 
 ```bash
-# 1. Ollama, the local model runner
-curl -fsSL https://ollama.com/install.sh | sh
-ollama pull gemma4:e4b          # ~5.5 GB. Slow laptop? use gemma4:e2b
+curl -fsSL https://raw.githubusercontent.com/vimla01/snapsloth/main/install.sh | sh
+```
 
-# 2. SnapSloth (needs Go 1.27+)
-go install github.com/vimla01/snapsloth@latest
+**Windows** (PowerShell):
 
-# 3. Open the app
+```powershell
+irm https://raw.githubusercontent.com/vimla01/snapsloth/main/install.ps1 | iex
+```
+
+Then start the app:
+
+```bash
 snapsloth ui
 ```
+
+Want the smaller, faster model? Set `SNAPSLOTH_MODEL=gemma4:e2b` before the install command
+(`$env:SNAPSLOTH_MODEL="gemma4:e2b"` on Windows) and scan with `--model gemma4:e2b`.
+
+<details>
+<summary>Prefer to do it by hand?</summary>
+
+1. Install Ollama from [ollama.com/download](https://ollama.com/download)
+2. `ollama pull gemma4:e4b`
+3. Download `snapsloth` for your system from [Releases](https://github.com/vimla01/snapsloth/releases),
+   or with Go 1.27+: `go install github.com/vimla01/snapsloth@latest`
+4. `snapsloth ui`
+
+</details>
 
 `snapsloth ui` opens the app in your browser. Pick your screenshots folder, press **Start scan**,
 then **Sort**. That's it. (Try it on a copy first: `cp -r ~/Pictures/Screenshots ~/ss-test`.)

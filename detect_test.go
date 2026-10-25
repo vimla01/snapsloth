@@ -36,6 +36,7 @@ func TestScrub(t *testing.T) {
 		{"aadhaar checksum only", "Number " + aadhaar + " here", "aadhaar", "XXXX-XXXX-" + aadhaar[8:], aadhaar},
 		{"pan", "PAN: ABCDE1234F", "pan", "XXXXXXXX4F", "ABCDE1234F"},
 		{"upi", "Paid to fakeuser@okaxis via UPI", "upi_id", "fa****@okaxis", "fakeuser@okaxis"},
+		{"upi ends sentence", "UPI ID: 9990001111@paytm. Request money", "upi_id", "99****@paytm.", "9990001111@paytm"},
 		{"card grouped", "Card 4111 1111 1111 1111 exp 12/30", "bank_details", "XXXX-XXXX-XXXX-1111", "4111 1111 1111 1111"},
 		{"card plain", "card4111111111111111", "", "", ""}, // glued to a word: no \b, ignored
 		{"account", "A/c no. 00112233445 credited", "bank_details", "XXXXXXX3445", "00112233445"},
@@ -110,5 +111,20 @@ func TestMaskHelpers(t *testing.T) {
 	}
 	if got := maskKeepLast("98-7654-3210", 4); got != "XX-XXXX-3210" {
 		t.Errorf("maskKeepLast = %q", got)
+	}
+}
+
+func TestIDCardKind(t *testing.T) {
+	tests := map[string]string{
+		"भारत सरकार GOVERNMENT OF INDIA Test Kumar DOB: 01-01-2000 MALE आधार - आम आदमी का अधिकार": "aadhaar",
+		"Unique Identification Authority of India. Year of Birth 1999":                            "aadhaar",
+		"INCOME TAX DEPARTMENT GOVT. OF INDIA Permanent Account Number Card":                      "pan",
+		"Aadhaar Seva Kendra timings: 9 AM to 5 PM":                                               "", // talks about Aadhaar, isn't a card
+		"Meeting notes, DOB field validation bug":                                                 "",
+	}
+	for in, want := range tests {
+		if got := IDCardKind(in); got != want {
+			t.Errorf("IDCardKind(%q) = %q, want %q", in, got, want)
+		}
 	}
 }

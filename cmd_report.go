@@ -62,8 +62,8 @@ func cmdRisky(args []string) error {
 		fmt.Println()
 	}
 	fmt.Println("Suggestion: review these and delete the ones you don't need.")
-	fmt.Println("SnapSloth never deletes anything itself. Open the folder with:")
-	fmt.Printf("  xdg-open %q\n", dir)
+	fmt.Println("SnapSloth never deletes anything itself. Open the folder in your file manager:")
+	fmt.Printf("  %s\n", dir)
 	return nil
 }
 
@@ -94,7 +94,7 @@ func riskReason(e *Entry) string {
 var (
 	forgetWeight = map[string]int{
 		"college_notice": 4, "upi_payment": 3, "ticket_or_booking": 3,
-		"timetable": 2, "shopping": 2, "bank_or_otp": 1, "notes_or_study": 1,
+		"timetable": 2, "shopping": 2,
 	}
 	todoWords = []string{
 		"due", "deadline", "last date", "pending", "request", "submit", "fee",
@@ -104,6 +104,10 @@ var (
 )
 
 func forgetScore(e *Entry) int {
+	// The model's own to-do beats any keyword guess.
+	if e.Todo != "" {
+		return 20 + forgetWeight[e.Category]
+	}
 	w, ok := forgetWeight[e.Category]
 	if !ok {
 		return 0
@@ -200,7 +204,11 @@ func cmdReport(args []string) error {
 		fmt.Println("\nThings you saved and probably forgot:")
 		for i, e := range r.Forgotten {
 			fmt.Printf("  %d. %s  [%s, %s]\n", i+1, e.Title, e.Category, e.Date)
-			fmt.Printf("     %s\n", e.Summary)
+			if e.Todo != "" {
+				fmt.Printf("     → %s\n", e.Todo)
+			} else {
+				fmt.Printf("     %s\n", e.Summary)
+			}
 			fmt.Printf("     %s\n", filepath.Join(dir, e.Path))
 		}
 	}
