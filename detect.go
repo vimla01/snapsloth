@@ -9,8 +9,8 @@ import (
 // Finding is one sensitive value spotted in text. The raw value is never kept;
 // only the masked form ever leaves this file.
 type Finding struct {
-	Type   string // same vocabulary as the model's sensitive_types
-	Masked string
+	Type   string `json:"type"` // same vocabulary as the model's sensitive_types
+	Masked string `json:"masked"`
 }
 
 type span struct {
