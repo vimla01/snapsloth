@@ -118,6 +118,53 @@ func forgetScore(e *Entry) int {
 	return w*2 + min(hits, 4)*3
 }
 
+// CatCount is one row of the per-category breakdown.
+type CatCount struct {
+	Category string `json:"category"`
+	Count    int    `json:"count"`
+}
+
+// Report is the morning summary, shared by the CLI and the UI.
+type Report struct {
+	Total        int        `json:"total"`
+	LastDay      int        `json:"last_day"`
+	Risky        int        `json:"risky"`
+	ModelSeconds float64    `json:"model_seconds"`
+	Categories   []CatCount `json:"categories"` // biggest first, empty ones left out
+	Forgotten    []*Entry   `json:"forgotten"`  // top 3
+}
+
+func buildReport(idx *Index, now time.Time) Report {
+	r := Report{Categories: []CatCount{}, Forgotten: []*Entry{}}
+	counts := map[string]int{}
+	var forgotten []*Entry
+	for _, e := range idx.Sorted() {
+		r.Total++
+		counts[e.Category]++
+		r.ModelSeconds += e.Seconds
+		if e.Sensitive {
+			r.Risky++
+		}
+		if now.Sub(e.ScannedAt) < 24*time.Hour {
+			r.LastDay++
+		}
+		if forgetScore(e) >= 8 {
+			forgotten = append(forgotten, e)
+		}
+	}
+	for _, c := range categories {
+		if counts[c] > 0 {
+			r.Categories = append(r.Categories, CatCount{c, counts[c]})
+		}
+	}
+	slices.SortStableFunc(r.Categories, func(a, b CatCount) int { return b.Count - a.Count })
+	// Highest score first; older first among equals, since those are the
+	// most forgotten.
+	slices.SortStableFunc(forgotten, func(a, b *Entry) int { return forgetScore(b) - forgetScore(a) })
+	r.Forgotten = append(r.Forgotten, forgotten[:min(3, len(forgotten))]...)
+	return r
+}
+
 func cmdReport(args []string) error {
 	fs := flag.NewFlagSet("report", flag.ExitOnError)
 	pos, err := parseFlags(fs, args)
@@ -132,54 +179,26 @@ func cmdReport(args []string) error {
 	if err != nil {
 		return err
 	}
-	entries := idx.Sorted()
 	now := time.Now()
-
-	var lastNight, risky int
-	var modelTime float64
-	counts := map[string]int{}
-	for _, e := range entries {
-		counts[e.Category]++
-		modelTime += e.Seconds
-		if e.Sensitive {
-			risky++
-		}
-		if now.Sub(e.ScannedAt) < 24*time.Hour {
-			lastNight++
-		}
-	}
+	r := buildReport(idx, now)
 
 	fmt.Printf("🦥 SnapSloth morning report, %s\n", now.Format("Mon 2 Jan 2006"))
 	fmt.Printf("   %s\n\n", dir)
-	if len(entries) == 0 {
+	if r.Total == 0 {
 		fmt.Println("nothing indexed yet; run: snapsloth scan", dir)
 		return nil
 	}
-	fmt.Printf("Processed:   %d screenshots (%d new in the last 24 h)\n", len(entries), lastNight)
-	fmt.Printf("Model time:  %s total, %.1f s per image\n", time.Duration(modelTime*float64(time.Second)).Round(time.Second), modelTime/float64(len(entries)))
-	fmt.Printf("Risky:       %d  → snapsloth risky %q\n\n", risky, dir)
+	fmt.Printf("Processed:   %d screenshots (%d new in the last 24 h)\n", r.Total, r.LastDay)
+	fmt.Printf("Model time:  %s total, %.1f s per image\n", time.Duration(r.ModelSeconds*float64(time.Second)).Round(time.Second), r.ModelSeconds/float64(r.Total))
+	fmt.Printf("Risky:       %d  → snapsloth risky %q\n\n", r.Risky, dir)
 
 	fmt.Println("By category:")
-	cats := slices.Clone(categories)
-	slices.SortStableFunc(cats, func(a, b string) int { return counts[b] - counts[a] })
-	for _, c := range cats {
-		if counts[c] > 0 {
-			fmt.Printf("  %-18s %4d  %s\n", c, counts[c], strings.Repeat("▇", max(1, counts[c]*30/len(entries))))
-		}
+	for _, c := range r.Categories {
+		fmt.Printf("  %-18s %4d  %s\n", c.Category, c.Count, strings.Repeat("▇", max(1, c.Count*30/r.Total)))
 	}
-
-	var forgotten []*Entry
-	for _, e := range entries {
-		if forgetScore(e) >= 8 {
-			forgotten = append(forgotten, e)
-		}
-	}
-	// Highest score first; older first among equals, since those are the
-	// most forgotten.
-	slices.SortStableFunc(forgotten, func(a, b *Entry) int { return forgetScore(b) - forgetScore(a) })
-	if len(forgotten) > 0 {
+	if len(r.Forgotten) > 0 {
 		fmt.Println("\nThings you saved and probably forgot:")
-		for i, e := range forgotten[:min(3, len(forgotten))] {
+		for i, e := range r.Forgotten {
 			fmt.Printf("  %d. %s  [%s, %s]\n", i+1, e.Title, e.Category, e.Date)
 			fmt.Printf("     %s\n", e.Summary)
 			fmt.Printf("     %s\n", filepath.Join(dir, e.Path))

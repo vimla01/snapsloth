@@ -23,12 +23,96 @@ func defaultHost() string {
 	return "http://localhost:11434"
 }
 
+type scanJob struct{ rel, hash string }
+
+// ScanPlan is what a scan would do: which files are new and which are known.
+type ScanPlan struct {
+	Files, Known, Dups int
+	Todo               []scanJob
+}
+
+// ScanEvent reports progress on one screenshot.
+type ScanEvent struct {
+	I, N    int
+	Rel     string
+	Entry   *Entry // nil if Err is set
+	Seconds float64
+	Err     error
+}
+
+// planScan hashes every image and works out which are new. Hashing is cheap
+// next to the model, and it means renamed or sorted files are recognised
+// instead of being analysed again. Known entries get their path refreshed.
+func planScan(dir string, idx *Index) (*ScanPlan, error) {
+	files, err := FindImages(dir)
+	if err != nil {
+		return nil, err
+	}
+	p := &ScanPlan{Files: len(files)}
+	seen := map[string]bool{}
+	for _, rel := range files {
+		h, err := hashFile(filepath.Join(dir, rel))
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "skip %s: %v\n", rel, err)
+			continue
+		}
+		if e, ok := idx.Entries[h]; ok {
+			e.Path = rel // follow files the user moved by hand
+			p.Known++
+			continue
+		}
+		if seen[h] {
+			p.Dups++ // exact copy of a file already queued
+			continue
+		}
+		seen[h] = true
+		p.Todo = append(p.Todo, scanJob{rel, h})
+	}
+	return p, nil
+}
+
+// runScan analyses todo one by one, saving the index after every image so a
+// crash or Ctrl+C loses nothing. It stops early when ctx is cancelled.
+func runScan(ctx context.Context, dir string, idx *Index, client *OllamaClient, todo []scanJob, emit func(ScanEvent)) error {
+	for i, j := range todo {
+		ev := ScanEvent{I: i + 1, N: len(todo), Rel: j.rel}
+		path := filepath.Join(dir, j.rel)
+		img, err := os.ReadFile(path)
+		if err != nil {
+			ev.Err = err
+			emit(ev)
+			continue
+		}
+		start := time.Now()
+		a, err := client.Analyze(ctx, img)
+		took := time.Since(start)
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		ev.Seconds = took.Seconds()
+		if err != nil {
+			ev.Err = err
+			emit(ev)
+			continue
+		}
+		e := newEntry(a, j.hash, j.rel, captureDate(path), client.Model, took)
+		idx.Entries[j.hash] = e
+		if err := idx.Save(); err != nil {
+			return err
+		}
+		ev.Entry = e
+		emit(ev)
+	}
+	return nil
+}
+
 func cmdScan(args []string) error {
 	fs := flag.NewFlagSet("scan", flag.ExitOnError)
 	model := fs.String("model", "gemma4:e4b", "Ollama vision model")
 	host := fs.String("host", defaultHost(), "Ollama URL")
 	limit := fs.Int("limit", 0, "analyse at most N new screenshots (0 = all)")
 	dryRun := fs.Bool("dry-run", false, "list new screenshots without calling the model")
+	imageSize := fs.Int("image-size", defaultImageSize, "shrink images to this many pixels on the longest side (0 = full size; smaller is faster)")
 	pos, err := parseFlags(fs, args)
 	if err != nil {
 		return err
@@ -42,38 +126,14 @@ func cmdScan(args []string) error {
 	if err != nil {
 		return err
 	}
-	files, err := FindImages(dir)
+	plan, err := planScan(dir, idx)
 	if err != nil {
 		return err
 	}
-
-	// Hashing is cheap next to the model, and it means renamed or sorted
-	// files are recognised instead of being analysed again.
-	type job struct{ rel, hash string }
-	var todo []job
-	var known, dups int
-	seen := map[string]bool{}
-	for _, rel := range files {
-		h, err := hashFile(filepath.Join(dir, rel))
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "skip %s: %v\n", rel, err)
-			continue
-		}
-		if e, ok := idx.Entries[h]; ok {
-			e.Path = rel // follow files the user moved by hand
-			known++
-			continue
-		}
-		if seen[h] {
-			dups++ // exact copy of a file already queued
-			continue
-		}
-		seen[h] = true
-		todo = append(todo, job{rel, h})
-	}
-	fmt.Printf("%d screenshots: %d already indexed, %d new", len(files), known, len(todo))
-	if dups > 0 {
-		fmt.Printf(", %d exact duplicates skipped", dups)
+	todo := plan.Todo
+	fmt.Printf("%d screenshots: %d already indexed, %d new", plan.Files, plan.Known, len(todo))
+	if plan.Dups > 0 {
+		fmt.Printf(", %d exact duplicates skipped", plan.Dups)
 	}
 	fmt.Println()
 	if *limit > 0 && len(todo) > *limit {
@@ -94,52 +154,40 @@ func cmdScan(args []string) error {
 	defer stop()
 
 	client := NewOllamaClient(*host, *model)
+	client.ImageSize = *imageSize
 	if err := client.Check(ctx); err != nil {
 		return err
 	}
-	fmt.Printf("model %s on %s (CPU: expect 10-30 s per image; Ctrl+C is safe)\n\n", *model, *host)
+	fmt.Printf("model %s on %s (CPU: about a minute per image; Ctrl+C is safe)\n\n", *model, *host)
 
 	var done, failed int
-	var total time.Duration
-	for i, j := range todo {
-		path := filepath.Join(dir, j.rel)
-		img, err := os.ReadFile(path)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "[%d/%d] %s: %v\n", i+1, len(todo), j.rel, err)
+	var total float64
+	err = runScan(ctx, dir, idx, client, todo, func(ev ScanEvent) {
+		if ev.Err != nil {
+			fmt.Fprintf(os.Stderr, "[%d/%d] %s: %v\n", ev.I, ev.N, ev.Rel, ev.Err)
 			failed++
-			continue
-		}
-		start := time.Now()
-		a, err := client.Analyze(ctx, img)
-		took := time.Since(start)
-		if ctx.Err() != nil {
-			fmt.Printf("\ninterrupted. %d saved, run scan again to continue.\n", done)
-			return nil
-		}
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "[%d/%d] %s: %v\n", i+1, len(todo), j.rel, err)
-			failed++
-			continue
-		}
-
-		e := newEntry(a, j.hash, j.rel, captureDate(path), *model, took)
-		idx.Entries[j.hash] = e
-		if err := idx.Save(); err != nil {
-			return err
+			return
 		}
 		done++
-		total += took
-
+		total += ev.Seconds
+		e := ev.Entry
 		flag := ""
 		if e.Sensitive {
 			flag = "  ⚠ " + strings.Join(e.SensitiveTypes, ",")
 		}
-		fmt.Printf("[%d/%d] %5.1fs  %-17s %s%s\n", i+1, len(todo), took.Seconds(), e.Category, e.Title, flag)
+		fmt.Printf("[%d/%d] %5.1fs  %-17s %s%s\n", ev.I, ev.N, ev.Seconds, e.Category, e.Title, flag)
+	})
+	if errors.Is(err, context.Canceled) {
+		fmt.Printf("\ninterrupted. %d saved, run scan again to continue.\n", done)
+		return nil
+	}
+	if err != nil {
+		return err
 	}
 
 	fmt.Printf("\ndone: %d analysed", done)
 	if done > 0 {
-		fmt.Printf(", %.1f s/image avg, %s total", total.Seconds()/float64(done), total.Round(time.Second))
+		fmt.Printf(", %.1f s/image avg, %s total", total/float64(done), time.Duration(total*float64(time.Second)).Round(time.Second))
 	}
 	if failed > 0 {
 		fmt.Printf(", %d failed (will retry next scan)", failed)

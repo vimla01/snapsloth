@@ -51,6 +51,16 @@ func loadMoveLog(dir string) (*MoveLog, error) {
 
 func (l *MoveLog) Save() error { return writeJSONAtomic(l.path, l) }
 
+// lastActive returns the newest sort that hasn't been undone, or nil.
+func (l *MoveLog) lastActive() *SortRun {
+	for _, r := range slices.Backward(l.Runs) {
+		if !r.Undone {
+			return r
+		}
+	}
+	return nil
+}
+
 func exists(path string) bool {
 	_, err := os.Lstat(path)
 	return err == nil
@@ -65,6 +75,106 @@ func moveNoClobber(from, to string) error {
 		return err
 	}
 	return os.Rename(from, to)
+}
+
+// SortPlan lists the moves a sort would make.
+type SortPlan struct {
+	Moves   []Move `json:"moves"`
+	Already int    `json:"already"`
+	Missing int    `json:"missing"`
+}
+
+func planSort(dir string, idx *Index) SortPlan {
+	p := SortPlan{Moves: []Move{}}
+	claimed := map[string]bool{} // targets taken earlier in this plan
+	taken := func(rel string) bool { return claimed[rel] || exists(filepath.Join(dir, rel)) }
+	for _, e := range idx.Sorted() {
+		if !exists(filepath.Join(dir, e.Path)) {
+			p.Missing++
+			continue
+		}
+		// Already filed in the right category folder: leave it alone, so
+		// sorting twice doesn't rename anything.
+		if filepath.Dir(e.Path) == filepath.Join(sortedDir, e.Category) {
+			p.Already++
+			continue
+		}
+		want := filepath.Join(sortedDir, e.Category, SortedName(parseDate(e.Date), e.Title, filepath.Ext(e.Path)))
+		to := UniquePath(want, taken)
+		claimed[to] = true
+		p.Moves = append(p.Moves, Move{e.Hash, e.Path, to})
+	}
+	return p
+}
+
+// applySort performs planned moves, logging each one before updating the
+// index: if we crash in between, undo still knows where the file went.
+func applySort(dir string, idx *Index, moves []Move, emit func(Move, error)) (int, error) {
+	log, err := loadMoveLog(dir)
+	if err != nil {
+		return 0, err
+	}
+	run := &SortRun{At: time.Now()}
+	for _, m := range moves {
+		e, ok := idx.Entries[m.Hash]
+		if !ok || e.Path != m.From {
+			emit(m, errors.New("index changed since the preview; skipped"))
+			continue
+		}
+		if err := moveNoClobber(filepath.Join(dir, m.From), filepath.Join(dir, m.To)); err != nil {
+			emit(m, err)
+			continue
+		}
+		if len(run.Moves) == 0 {
+			log.Runs = append(log.Runs, run)
+		}
+		run.Moves = append(run.Moves, m)
+		e.Path = m.To
+		if err := log.Save(); err != nil {
+			return len(run.Moves), err
+		}
+		if err := idx.Save(); err != nil {
+			return len(run.Moves), err
+		}
+		emit(m, nil)
+	}
+	return len(run.Moves), nil
+}
+
+// undoLast reverses the newest sort, never overwriting anything.
+func undoLast(dir string, emit func(Move, error)) (run *SortRun, back int, err error) {
+	log, err := loadMoveLog(dir)
+	if err != nil {
+		return nil, 0, err
+	}
+	if run = log.lastActive(); run == nil {
+		return nil, 0, errors.New("no sort to undo")
+	}
+	idx, err := LoadIndex(dir)
+	if err != nil {
+		return nil, 0, err
+	}
+	for _, m := range slices.Backward(run.Moves) {
+		if !exists(filepath.Join(dir, m.To)) {
+			emit(m, fmt.Errorf("%s is gone (moved or deleted since)", m.To))
+			continue
+		}
+		if err := moveNoClobber(filepath.Join(dir, m.To), filepath.Join(dir, m.From)); err != nil {
+			emit(m, err)
+			continue
+		}
+		if e, ok := idx.Entries[m.Hash]; ok {
+			e.Path = m.From
+		}
+		back++
+		removeEmptyDirs(dir, filepath.Dir(m.To))
+		emit(m, nil)
+	}
+	run.Undone = true
+	if err := log.Save(); err != nil {
+		return run, back, err
+	}
+	return run, back, idx.Save()
 }
 
 func cmdSort(args []string) error {
@@ -85,69 +195,39 @@ func cmdSort(args []string) error {
 	if len(idx.Entries) == 0 {
 		return errors.New("nothing indexed yet; run: snapsloth scan " + dir)
 	}
-	log, err := loadMoveLog(dir)
-	if err != nil {
-		return err
-	}
 
-	run := &SortRun{At: time.Now()}
-	claimed := map[string]bool{} // targets taken earlier in this run (matters for --dry-run)
-	taken := func(rel string) bool { return claimed[rel] || exists(filepath.Join(dir, rel)) }
-	var missing, already int
-
-	for _, e := range idx.Sorted() {
-		if !exists(filepath.Join(dir, e.Path)) {
-			missing++
-			continue
+	plan := planSort(dir, idx)
+	moved := len(plan.Moves)
+	if *dryRun {
+		for _, m := range plan.Moves {
+			fmt.Printf("%s\n  → %s\n", m.From, m.To)
 		}
-		// Already filed in the right category folder: leave it alone, so
-		// sorting twice doesn't rename anything.
-		if filepath.Dir(e.Path) == filepath.Join(sortedDir, e.Category) {
-			already++
-			continue
-		}
-		want := filepath.Join(sortedDir, e.Category, SortedName(parseDate(e.Date), e.Title, filepath.Ext(e.Path)))
-		to := UniquePath(want, taken)
-		claimed[to] = true
-
-		if *dryRun {
-			fmt.Printf("%s\n  → %s\n", e.Path, to)
-			run.Moves = append(run.Moves, Move{e.Hash, e.Path, to})
-			continue
-		}
-		if err := moveNoClobber(filepath.Join(dir, e.Path), filepath.Join(dir, to)); err != nil {
-			fmt.Fprintln(os.Stderr, "skip:", err)
-			continue
-		}
-		if len(run.Moves) == 0 {
-			log.Runs = append(log.Runs, run)
-		}
-		run.Moves = append(run.Moves, Move{e.Hash, e.Path, to})
-		e.Path = to
-		// Log the move before touching the index: if we crash in between,
-		// undo still knows where the file went.
-		if err := log.Save(); err != nil {
+	} else {
+		moved, err = applySort(dir, idx, plan.Moves, func(m Move, err error) {
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "skip:", err)
+				return
+			}
+			fmt.Printf("%s → %s\n", m.From, m.To)
+		})
+		if err != nil {
 			return err
 		}
-		if err := idx.Save(); err != nil {
-			return err
-		}
-		fmt.Printf("%s → %s\n", run.Moves[len(run.Moves)-1].From, to)
 	}
 
 	verb := "moved"
 	if *dryRun {
 		verb = "would move"
 	}
-	fmt.Printf("\n%s %d files", verb, len(run.Moves))
-	if already > 0 {
-		fmt.Printf(", %d already sorted", already)
+	fmt.Printf("\n%s %d files", verb, moved)
+	if plan.Already > 0 {
+		fmt.Printf(", %d already sorted", plan.Already)
 	}
-	if missing > 0 {
-		fmt.Printf(", %d indexed files not found on disk", missing)
+	if plan.Missing > 0 {
+		fmt.Printf(", %d indexed files not found on disk", plan.Missing)
 	}
 	fmt.Println()
-	if !*dryRun && len(run.Moves) > 0 {
+	if !*dryRun && moved > 0 {
 		fmt.Println("changed your mind? snapsloth undo", dir)
 	}
 	return nil
@@ -164,59 +244,34 @@ func cmdUndo(args []string) error {
 	if err != nil {
 		return err
 	}
-	log, err := loadMoveLog(dir)
-	if err != nil {
-		return err
-	}
-	var run *SortRun
-	for j := len(log.Runs) - 1; j >= 0; j-- {
-		if !log.Runs[j].Undone {
-			run = log.Runs[j]
-			break
-		}
-	}
-	if run == nil {
-		return errors.New("no sort to undo")
-	}
-	idx, err := LoadIndex(dir)
-	if err != nil {
-		return err
-	}
 
-	fmt.Printf("undoing sort from %s (%d moves)\n", run.At.Format("Mon 2 Jan 15:04"), len(run.Moves))
-	var back, skipped int
-	for _, m := range slices.Backward(run.Moves) {
-		if *dryRun {
-			fmt.Printf("%s\n  → %s\n", m.To, m.From)
-			continue
-		}
-		if !exists(filepath.Join(dir, m.To)) {
-			fmt.Fprintf(os.Stderr, "skip: %s is gone (moved or deleted since)\n", m.To)
-			skipped++
-			continue
-		}
-		if err := moveNoClobber(filepath.Join(dir, m.To), filepath.Join(dir, m.From)); err != nil {
-			fmt.Fprintln(os.Stderr, "skip:", err)
-			skipped++
-			continue
-		}
-		if e, ok := idx.Entries[m.Hash]; ok {
-			e.Path = m.From
-		}
-		back++
-		removeEmptyDirs(dir, filepath.Dir(m.To))
-	}
 	if *dryRun {
+		log, err := loadMoveLog(dir)
+		if err != nil {
+			return err
+		}
+		run := log.lastActive()
+		if run == nil {
+			return errors.New("no sort to undo")
+		}
+		fmt.Printf("would undo sort from %s (%d moves)\n", run.At.Format("Mon 2 Jan 15:04"), len(run.Moves))
+		for _, m := range slices.Backward(run.Moves) {
+			fmt.Printf("%s\n  → %s\n", m.To, m.From)
+		}
 		return nil
 	}
-	run.Undone = true
-	if err := log.Save(); err != nil {
+
+	skipped := 0
+	run, back, err := undoLast(dir, func(m Move, err error) {
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "skip:", err)
+			skipped++
+		}
+	})
+	if err != nil {
 		return err
 	}
-	if err := idx.Save(); err != nil {
-		return err
-	}
-	fmt.Printf("moved %d files back", back)
+	fmt.Printf("undid sort from %s: moved %d files back", run.At.Format("Mon 2 Jan 15:04"), back)
 	if skipped > 0 {
 		fmt.Printf(", %d skipped (see above)", skipped)
 	}

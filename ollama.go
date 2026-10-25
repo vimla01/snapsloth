@@ -47,7 +47,7 @@ var analysisSchema = map[string]any{
 	"required": []string{"category", "title", "summary", "text", "sensitive", "sensitive_types"},
 }
 
-const analysisPrompt = `You are sorting a student's phone/laptop screenshots (India). Look at this screenshot and reply with JSON only.
+const analysisPrompt = `You are sorting a student's phone/laptop screenshots (India). For each screenshot, reply with JSON only.
 
 category, pick exactly one:
 - upi_payment: GPay/PhonePe/Paytm/BHIM payment, receipt, UPI request
@@ -66,21 +66,23 @@ category, pick exactly one:
 
 title: short 3-6 word title.
 summary: one line, what it is and why the person probably saved it.
-text: all readable text in the image, as plain text.
-sensitive: true if it shows OTPs, bank/card details, UPI IDs, Aadhaar, PAN, passwords, phone numbers or home addresses.
+text: the important readable text in the image, as plain text, at most about 50 words, most important first. Skip menus, buttons, tabs and status bars.
+sensitive: true only if the image actually shows a real OTP, bank account or card number, UPI ID, Aadhaar or PAN number, password, phone number or home address. Ordinary numbers (process IDs, prices, dates, versions, stats) are not sensitive.
 sensitive_types: which of those it shows (empty list if none).`
 
 type OllamaClient struct {
-	Host    string
-	Model   string
-	HTTP    *http.Client
-	noThink bool // set once the server rejected the `think` field
+	Host      string
+	Model     string
+	ImageSize int // longest side images are shrunk to before sending; 0 = as is
+	HTTP      *http.Client
+	noThink   bool // set once the server rejected the `think` field
 }
 
 func NewOllamaClient(host, model string) *OllamaClient {
 	return &OllamaClient{
-		Host:  strings.TrimRight(host, "/"),
-		Model: model,
+		Host:      strings.TrimRight(host, "/"),
+		Model:     model,
+		ImageSize: defaultImageSize,
 		// CPU inference is slow and the first call also loads the model.
 		HTTP: &http.Client{Timeout: 15 * time.Minute},
 	}
@@ -120,6 +122,7 @@ func (c *OllamaClient) Check(ctx context.Context) error {
 
 type generateRequest struct {
 	Model   string         `json:"model"`
+	System  string         `json:"system,omitempty"`
 	Prompt  string         `json:"prompt"`
 	Images  []string       `json:"images"`
 	Stream  bool           `json:"stream"`
@@ -132,11 +135,15 @@ type generateRequest struct {
 func (c *OllamaClient) Analyze(ctx context.Context, image []byte) (*Analysis, error) {
 	req := generateRequest{
 		Model:   c.Model,
-		Prompt:  analysisPrompt,
-		Images:  []string{base64.StdEncoding.EncodeToString(image)},
+		// The instructions go in the system prompt, ahead of the image, so
+		// Ollama can reuse them from cache instead of re-reading ~370 tokens
+		// for every screenshot.
+		System:  analysisPrompt,
+		Prompt:  "Analyse this screenshot.",
+		Images:  []string{base64.StdEncoding.EncodeToString(shrinkForModel(image, c.ImageSize))},
 		Stream:  false,
 		Format:  analysisSchema,
-		Options: map[string]any{"temperature": 0.1, "num_predict": 2048},
+		Options: map[string]any{"temperature": 0.1, "num_predict": 768},
 	}
 	if !c.noThink {
 		req.Think = new(false)

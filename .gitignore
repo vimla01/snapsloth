@@ -31,3 +31,14 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# SnapSloth: never commit the binary, real screenshots, indexes or labels
+/snapsloth
+.snapsloth/
+labels*.csv
+*.png
+*.jpg
+*.jpeg
+*.webp
+# ...except demo images in docs/ (check they show no real personal data first)
+!docs/**

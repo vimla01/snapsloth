@@ -16,6 +16,8 @@ Usage:
   snapsloth <command> [flags] <dir> [args]
 
 Commands:
+  ui [dir]        open the point-and-click app in your browser (easiest way to start)
+                  [--port 8765] [--model gemma4:e4b] [--no-open]
   scan <dir>      analyse new screenshots with the local model
                   [--model gemma4:e4b] [--host URL] [--limit N] [--dry-run]
   sort <dir>      move into sorted/<category>/YYYY-MM-DD_<title>.<ext> [--dry-run]
@@ -26,7 +28,7 @@ Commands:
   report <dir>    morning summary (cron it into ~/snapsloth-morning.txt)
   eval <dir> labels.csv
                   accuracy vs your labels (filename,category) [--init writes a blank labels.csv]
-  help           show this help
+  help            show this help
 `
 
 func main() {
@@ -37,6 +39,8 @@ func main() {
 	cmd, args := os.Args[1], os.Args[2:]
 	var err error
 	switch cmd {
+	case "ui":
+		err = cmdUI(args)
 	case "scan":
 		err = cmdScan(args)
 	case "sort":
