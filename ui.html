@@ -1,0 +1,530 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SnapSloth</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🦥</text></svg>">
+<style>
+  :root {
+    --bg: #f7f4ee;
+    --card: #ffffff;
+    --ink: #24221e;
+    --muted: #7a746b;
+    --faint: #a9a297;
+    --line: #ebe5da;
+    --moss: #3f6b4f;
+    --moss-dark: #31553e;
+    --moss-soft: #e7efe8;
+    --sand: #f3ead9;
+    --risk: #b4461f;
+    --risk-soft: #fbece4;
+    --amber-soft: #fdf3dc;
+    --radius: 16px;
+    --shadow: 0 1px 2px rgba(60, 50, 30, .04), 0 4px 16px rgba(60, 50, 30, .05);
+    color-scheme: light;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.5 ui-rounded, "SF Pro Rounded", "Nunito", "Segoe UI", system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 28px 20px 80px; }
+  button, input, select { font: inherit; color: inherit; }
+  code, pre { font-family: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace; font-size: 13px; }
+
+  /* header */
+  header { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 22px; }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .brand .logo { font-size: 38px; line-height: 1; filter: drop-shadow(0 2px 3px rgba(0,0,0,.08)); }
+  .brand h1 { margin: 0; font-size: 24px; letter-spacing: -.02em; }
+  .brand p { margin: 0; color: var(--muted); font-size: 13.5px; }
+  .pill { display: inline-flex; align-items: center; gap: 8px; padding: 7px 13px; border-radius: 999px; background: var(--card); border: 1px solid var(--line); font-size: 13px; color: var(--muted); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); }
+  .dot.ok { background: #4c9a63; box-shadow: 0 0 0 3px #dcebdf; }
+  .dot.bad { background: var(--risk); box-shadow: 0 0 0 3px var(--risk-soft); }
+
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
+
+  /* folder */
+  .folder { display: flex; gap: 10px; align-items: center; padding: 10px 10px 10px 16px; margin-bottom: 18px; }
+  .folder .ico { font-size: 18px; }
+  .folder input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; font-size: 14.5px; }
+  .folder .meta { color: var(--muted); font-size: 13px; white-space: nowrap; }
+
+  .btn { border: 1px solid var(--line); background: var(--card); padding: 9px 16px; border-radius: 11px; cursor: pointer; font-weight: 600; font-size: 14px; transition: background .15s, transform .05s, border-color .15s; white-space: nowrap; }
+  .btn:hover { background: #faf8f4; border-color: #ddd5c7; }
+  .btn:active { transform: translateY(1px); }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .btn.primary { background: var(--moss); border-color: var(--moss); color: #fff; }
+  .btn.primary:hover { background: var(--moss-dark); }
+  .btn.danger { color: var(--risk); }
+  .btn.small { padding: 6px 11px; font-size: 13px; border-radius: 9px; }
+
+  .banner { display: flex; gap: 14px; align-items: flex-start; padding: 14px 18px; margin-bottom: 18px; border-radius: var(--radius); }
+  .banner.bad { background: var(--risk-soft); border: 1px solid #f3d3c4; }
+  .banner.good { background: var(--moss-soft); border: 1px solid #d3e3d6; }
+  .banner pre { margin: 8px 0 0; white-space: pre-wrap; background: rgba(255,255,255,.7); padding: 10px 12px; border-radius: 10px; }
+  .banner b { display: block; margin-bottom: 2px; }
+
+  /* actions */
+  .actions { display: grid; grid-template-columns: 1.4fr 1fr 1fr; gap: 14px; margin-bottom: 18px; }
+  .action { min-width: 0; padding: 18px 18px 16px; display: flex; flex-direction: column; gap: 10px; }
+  .action h3 { margin: 0; font-size: 16px; display: flex; align-items: center; gap: 8px; }
+  .action p { margin: 0; color: var(--muted); font-size: 13.5px; flex: 1; }
+  .action .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  select { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; background: var(--card); font-size: 13.5px; }
+
+  .progress { height: 10px; border-radius: 99px; background: var(--sand); overflow: hidden; }
+  .progress > div { height: 100%; background: linear-gradient(90deg, #5d8c69, var(--moss)); border-radius: 99px; transition: width .6s ease; }
+  .now { font-size: 13px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .feed { display: flex; flex-direction: column; gap: 5px; }
+  .feed div { font-size: 13px; display: flex; gap: 8px; align-items: center; animation: pop .35s ease; }
+  @keyframes pop { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; } }
+  .sloth-walk { display: inline-block; animation: walk 2.4s ease-in-out infinite; }
+  @keyframes walk { 0%,100% { transform: translateX(0) rotate(-4deg); } 50% { transform: translateX(6px) rotate(4deg); } }
+
+  /* stats */
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 22px; }
+  .stat { padding: 16px 18px; }
+  .stat .n { font-size: 28px; font-weight: 700; letter-spacing: -.02em; line-height: 1.15; }
+  .stat .l { color: var(--muted); font-size: 13px; }
+  .stat.risk .n { color: var(--risk); }
+
+  /* tabs */
+  .tabs { display: flex; gap: 4px; margin-bottom: 16px; background: #efe9de; padding: 4px; border-radius: 13px; width: fit-content; }
+  .tab { border: 0; background: transparent; padding: 8px 16px; border-radius: 10px; cursor: pointer; font-weight: 600; color: var(--muted); font-size: 14px; }
+  .tab.on { background: var(--card); color: var(--ink); box-shadow: var(--shadow); }
+  .badge { display: inline-block; min-width: 20px; padding: 0 6px; margin-left: 4px; border-radius: 99px; background: var(--risk-soft); color: var(--risk); font-size: 12px; line-height: 20px; text-align: center; }
+
+  /* overview */
+  .overview { display: grid; grid-template-columns: 1.15fr 1fr; gap: 14px; }
+  .panel { padding: 20px; }
+  .panel h2 { margin: 0 0 4px; font-size: 16px; }
+  .panel .sub { margin: 0 0 16px; color: var(--muted); font-size: 13.5px; }
+  .forgot { display: flex; gap: 14px; padding: 12px; border-radius: 12px; cursor: pointer; transition: background .15s; }
+  .forgot:hover { background: #faf7f1; }
+  .forgot .thumb { width: 74px; height: 56px; flex: none; border-radius: 9px; }
+  .forgot .t { font-weight: 650; }
+  .forgot .s { color: var(--muted); font-size: 13px; }
+  .bars { display: flex; flex-direction: column; gap: 9px; }
+  .bar { display: grid; grid-template-columns: 150px 1fr 34px; gap: 10px; align-items: center; font-size: 13.5px; cursor: pointer; border-radius: 8px; padding: 2px 4px; }
+  .bar:hover { background: #faf7f1; }
+  .bar .track { height: 9px; background: #f2ede4; border-radius: 99px; overflow: hidden; }
+  .bar .fill { height: 100%; border-radius: 99px; }
+  .bar .c { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+  /* browse */
+  .toolbar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 14px; }
+  .search { flex: 1; min-width: 220px; display: flex; align-items: center; gap: 8px; padding: 0 14px; height: 44px; }
+  .search input { flex: 1; border: 0; outline: 0; background: transparent; font-size: 15px; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 16px; }
+  .chip { border: 1px solid var(--line); background: var(--card); border-radius: 99px; padding: 5px 12px; font-size: 13px; cursor: pointer; color: var(--muted); }
+  .chip.on { background: var(--ink); color: #fff; border-color: var(--ink); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; }
+  .tile { overflow: hidden; cursor: pointer; transition: transform .15s, box-shadow .15s; }
+  .tile:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(60, 50, 30, .09); }
+  .tile .thumb { aspect-ratio: 16 / 10; border-radius: 0; border-bottom: 1px solid var(--line); }
+  .tile .body { padding: 11px 13px 13px; }
+  .tile .t { font-weight: 650; font-size: 14px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .tile .m { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; gap: 8px; }
+  .tag { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; padding: 2px 9px; border-radius: 99px; white-space: nowrap; }
+  .date { color: var(--faint); font-size: 12px; }
+
+  .thumb { position: relative; background: #f1ece3 center / cover no-repeat; overflow: hidden; }
+  .thumb img { width: 100%; height: 100%; object-fit: cover; object-position: top; display: block; }
+  .thumb.secret img { filter: blur(14px) saturate(.6); transform: scale(1.1); }
+  .thumb.secret::after { content: "🔒"; position: absolute; inset: 0; display: grid; place-items: center; font-size: 20px; background: rgba(255,255,255,.25); }
+
+  /* risky */
+  .risk-note { padding: 14px 18px; margin-bottom: 14px; display: flex; gap: 12px; align-items: center; background: var(--amber-soft); border: 1px solid #f2e1b8; border-radius: var(--radius); font-size: 14px; }
+  .risk-row { display: flex; gap: 16px; padding: 14px; margin-bottom: 10px; align-items: center; }
+  .risk-row .thumb { width: 96px; height: 72px; border-radius: 10px; flex: none; cursor: pointer; }
+  .risk-row .info { flex: 1; min-width: 0; }
+  .risk-row .t { font-weight: 650; }
+  .risk-row .why { font-size: 13px; color: var(--risk); margin-top: 3px; }
+  .risk-row .tip { font-size: 13px; color: var(--muted); }
+
+  .empty { text-align: center; padding: 56px 20px; color: var(--muted); }
+  .empty .big { font-size: 46px; margin-bottom: 8px; }
+
+  /* modal */
+  .scrim { position: fixed; inset: 0; background: rgba(36, 34, 30, .38); backdrop-filter: blur(3px); display: none; align-items: center; justify-content: center; padding: 20px; z-index: 10; }
+  .scrim.open { display: flex; }
+  .modal { width: min(960px, 100%); max-height: 90vh; overflow: auto; padding: 22px; animation: rise .2s ease; }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px) scale(.99); } }
+  .modal-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; margin-bottom: 14px; }
+  .modal-head h2 { margin: 0; font-size: 19px; }
+  .x { border: 0; background: #f2ede4; width: 34px; height: 34px; border-radius: 50%; cursor: pointer; font-size: 16px; flex: none; }
+  .detail { display: grid; grid-template-columns: 1.2fr 1fr; gap: 20px; }
+  .detail .shot { border-radius: 12px; border: 1px solid var(--line); background: #f1ece3; position: relative; overflow: hidden; min-height: 200px; }
+  .detail .shot img { width: 100%; display: block; }
+  .detail .shot.secret img { filter: blur(22px); }
+  .reveal { position: absolute; inset: 0; display: grid; place-items: center; }
+  .detail pre { white-space: pre-wrap; word-break: break-word; background: #faf8f3; border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; max-height: 300px; overflow: auto; margin: 6px 0 0; }
+  .kv { font-size: 13px; color: var(--muted); margin: 12px 0 4px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+  .path { font-size: 12.5px; color: var(--muted); word-break: break-all; }
+  .moves { border: 1px solid var(--line); border-radius: 12px; max-height: 50vh; overflow: auto; }
+  .move { display: grid; grid-template-columns: 1fr auto 1.3fr; gap: 10px; padding: 9px 14px; border-bottom: 1px solid var(--line); font-size: 13px; align-items: center; }
+  .move:last-child { border-bottom: 0; }
+  .move .from { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .move .to { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .modal-foot { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; align-items: center; }
+  .modal-foot .hint { margin-right: auto; color: var(--muted); font-size: 13px; }
+
+  .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%) translateY(20px); background: var(--ink); color: #fff; padding: 11px 18px; border-radius: 12px; font-size: 14px; opacity: 0; transition: .25s; pointer-events: none; z-index: 20; max-width: calc(100% - 32px); }
+  .toast.show { opacity: 1; transform: translateX(-50%); }
+
+  footer { margin-top: 40px; text-align: center; color: var(--faint); font-size: 13px; }
+
+  @media (max-width: 860px) {
+    .actions, .overview, .detail { grid-template-columns: minmax(0, 1fr); }
+    .stats { grid-template-columns: repeat(2, 1fr); }
+    .bar { grid-template-columns: 110px 1fr 30px; }
+  }
+  @media (max-width: 520px) {
+    .wrap { padding: 18px 16px 60px; }
+    .folder .meta { display: none; }
+    .move { grid-template-columns: 1fr; gap: 2px; }
+    .move .arrow { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <div class="logo">🦥</div>
+      <div>
+        <h1>SnapSloth</h1>
+        <p>For every screenshot you said “baad mai” to.</p>
+      </div>
+    </div>
+    <div class="pill" id="ollama"><span class="dot"></span><span>Checking model…</span></div>
+  </header>
+
+  <div class="card folder">
+    <span class="ico">📁</span>
+    <input id="dir" placeholder="Your screenshots folder, e.g. ~/Pictures/Screenshots" spellcheck="false">
+    <span class="meta" id="dirmeta"></span>
+    <button class="btn small" id="setdir">Open</button>
+  </div>
+
+  <div id="banner"></div>
+
+  <div id="main" hidden>
+    <div class="actions">
+      <div class="card action" id="scanCard"></div>
+      <div class="card action">
+        <h3>🗂️ Sort into folders</h3>
+        <p>Renames each one by what it is and files it under <code>sorted/</code>. You'll see a preview first.</p>
+        <div class="row"><button class="btn" id="sortBtn">Preview sort</button></div>
+      </div>
+      <div class="card action">
+        <h3>↩️ Undo last sort</h3>
+        <p>Changed your mind? Puts every file back where it was. Nothing is ever deleted.</p>
+        <div class="row"><button class="btn" id="undoBtn">Undo</button></div>
+      </div>
+    </div>
+
+    <div class="stats">
+      <div class="card stat"><div class="n" id="sTotal">0</div><div class="l">screenshots understood</div></div>
+      <div class="card stat"><div class="n" id="sDay">0</div><div class="l">new in the last 24 h</div></div>
+      <div class="card stat risk"><div class="n" id="sRisk">0</div><div class="l">contain sensitive info</div></div>
+      <div class="card stat"><div class="n" id="sTime">0s</div><div class="l" id="sTimeL">model time</div></div>
+    </div>
+
+    <div class="tabs">
+      <button class="tab on" data-tab="overview">☕ Morning report</button>
+      <button class="tab" data-tab="browse">🔎 Browse & search</button>
+      <button class="tab" data-tab="risky">⚠️ Risky <span class="badge" id="riskBadge">0</span></button>
+    </div>
+
+    <section id="tab-overview"></section>
+    <section id="tab-browse" hidden>
+      <div class="toolbar">
+        <div class="card search"><span>🔎</span><input id="q" placeholder="Search the text inside your screenshots: “hostel fee”, “PNR”, “nil pointer”…" spellcheck="false"></div>
+      </div>
+      <div class="chips" id="chips"></div>
+      <div class="grid" id="grid"></div>
+    </section>
+    <section id="tab-risky" hidden></section>
+  </div>
+
+  <footer>Runs 100% on this computer · nothing is uploaded · works with Wi-Fi off</footer>
+</div>
+
+<div class="scrim" id="scrim"><div class="card modal" id="modal"></div></div>
+<div class="toast" id="toast"></div>
+
+<script>
+const CATS = {
+  upi_payment:       ["💸", "UPI payments",     "#e3f1e6", "#2f6b43"],
+  bank_or_otp:       ["🏦", "Bank & OTP",       "#fbe9e1", "#a4431f"],
+  college_notice:    ["📢", "College notices",  "#fdf1d8", "#8a5a10"],
+  timetable:         ["🗓️", "Timetables",       "#e6eefb", "#2c5596"],
+  chat:              ["💬", "Chats",            "#e4f3f4", "#256b70"],
+  meme:              ["😂", "Memes",            "#fcebf2", "#9b2f5e"],
+  shopping:          ["🛍️", "Shopping",         "#f3e9fb", "#6b3d96"],
+  code_or_error:     ["🐞", "Code & errors",    "#eceef1", "#3e4756"],
+  ticket_or_booking: ["🎫", "Tickets",          "#e6f0fb", "#2b5f93"],
+  id_document:       ["🪪", "ID documents",     "#fbe6e6", "#9a2c2c"],
+  social_post:       ["📱", "Social posts",     "#eaf4fb", "#2c6b93"],
+  notes_or_study:    ["📚", "Notes & study",    "#eef5e2", "#557021"],
+  other:             ["🗃️", "Other",            "#f1ede6", "#6b6459"],
+};
+const cat = c => CATS[c] || CATS.other;
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const tag = c => `<span class="tag" style="background:${cat(c)[2]};color:${cat(c)[3]}">${cat(c)[0]} ${esc(cat(c)[1])}</span>`;
+const thumb = (e, cls = "") => `<div class="thumb ${e.sensitive ? "secret" : ""} ${cls}"><img loading="lazy" src="/api/img/${esc(e.hash)}" alt=""></div>`;
+const dur = s => s < 90 ? `${Math.round(s)}s` : s < 5400 ? `${Math.round(s / 60)} min` : `${(s / 3600).toFixed(1)} h`;
+
+let S = {}, tab = "overview", filter = "", entries = [], byHash = {}, lastSig = "", limit = "0";
+
+async function api(path, body) {
+  const opts = body === undefined ? {} : { method: "POST", headers: { "X-SnapSloth": "1", "Content-Type": "application/json" }, body: JSON.stringify(body) };
+  const r = await fetch(path, opts);
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+}
+
+function toast(msg) {
+  const t = $("#toast");
+  t.textContent = msg;
+  t.classList.add("show");
+  clearTimeout(t._h);
+  t._h = setTimeout(() => t.classList.remove("show"), 3200);
+}
+
+async function refresh() {
+  try { S = await api("/api/status"); } catch (e) { return; }
+  renderStatus();
+  // Reload the list only when something changed, so the page doesn't flicker.
+  const sig = [S.dir, S.report?.total, S.report?.risky, S.job?.done, S.files, S.can_undo].join("|");
+  if (sig !== lastSig) { lastSig = sig; loadEntries(); }
+}
+
+function renderStatus() {
+  const o = $("#ollama");
+  o.innerHTML = S.ollama_error
+    ? `<span class="dot bad"></span><span>Model not ready</span>`
+    : `<span class="dot ok"></span><span>${esc(S.model)} · local</span>`;
+
+  // Show the home folder as ~, like a terminal does.
+  const tilde = d => S.home && d && (d === S.home || d.startsWith(S.home + "/")) ? "~" + d.slice(S.home.length) : d || "";
+  if (document.activeElement !== $("#dir")) $("#dir").value = tilde(S.dir);
+  $("#dirmeta").textContent = S.dir ? `${S.files} images · ${S.pending} new` : "";
+
+  let b = "";
+  if (S.ollama_error) b += `<div class="banner bad"><span>🔌</span><div><b>The local model isn't ready yet</b>Run this in a terminal, then this page will notice by itself:<pre>${esc(S.ollama_error)}</pre></div></div>`;
+  if (!S.dir) b += `<div class="banner good"><span>👋</span><div><b>Welcome! Where do your screenshots live?</b>Type the folder above and press Open. Tip: try it on a copy first, e.g. <code>~/ss-test</code>.</div></div>`;
+  $("#banner").innerHTML = b;
+  $("#main").hidden = !S.dir;
+  if (!S.dir) return;
+
+  const r = S.report;
+  $("#sTotal").textContent = r.total;
+  $("#sDay").textContent = r.last_day;
+  $("#sRisk").textContent = r.risky;
+  $("#riskBadge").textContent = r.risky;
+  $("#sTime").textContent = dur(r.model_seconds);
+  $("#sTimeL").textContent = r.total ? `model time · ${(r.model_seconds / r.total).toFixed(1)} s per image` : "model time";
+  $("#undoBtn").disabled = !S.can_undo || S.job?.running;
+  $("#sortBtn").disabled = !r.total || S.job?.running;
+  renderScanCard();
+}
+
+function renderScanCard() {
+  const j = S.job, c = $("#scanCard");
+  if (j && j.running) {
+    const pct = Math.round(100 * j.i / j.n);
+    const avg = j.done ? j.seconds / j.done : 20;
+    const left = (j.n - j.i) * avg;
+    c.innerHTML = `
+      <h3><span class="sloth-walk">🦥</span> Reading screenshots… ${j.i} / ${j.n}</h3>
+      <div class="progress"><div style="width:${Math.max(3, pct)}%"></div></div>
+      <div class="now">Now: ${esc(j.current)} · ${j.done ? avg.toFixed(1) + " s each" : "warming up the model"} · about ${dur(left)} left</div>
+      <div class="feed">${j.recent.map(e => `<div>${tag(e.category)} <span>${esc(e.title)}</span>${e.sensitive ? " ⚠️" : ""}</div>`).join("")}</div>
+      <div class="row"><button class="btn small danger" onclick="stopScan()">Stop (progress is saved)</button></div>`;
+    return;
+  }
+  const n = S.pending;
+  const est = n * ((S.report.total && S.report.model_seconds / S.report.total) || 20);
+  let done = "";
+  if (j && !j.running && j.done + j.failed > 0) done = `<p style="flex:0;color:var(--moss)">✓ Last scan: ${j.done} done${j.failed ? `, ${j.failed} failed` : ""} in ${dur(j.seconds)}.</p>`;
+  if (j && j.error) done += `<p style="flex:0;color:var(--risk)">${esc(j.error)}</p>`;
+  c.innerHTML = `
+    <h3>🔍 Read new screenshots</h3>
+    <p>${n ? `<b>${n}</b> new screenshot${n > 1 ? "s" : ""} waiting · about ${dur(est)} on this laptop. Safe to stop anytime.` : "All caught up. New screenshots will show up here."}</p>
+    ${done}
+    <div class="row">
+      <select id="limit" onchange="limit=this.value">${[["0", "All new"], ["5", "Just 5"], ["20", "20"], ["50", "50"]].map(([v, l]) => `<option value="${v}" ${v === limit ? "selected" : ""}>${l}</option>`).join("")}</select>
+      <button class="btn primary" id="scanBtn" ${n && !S.ollama_error ? "" : "disabled"} onclick="startScan()">Start scan</button>
+    </div>`;
+}
+
+async function startScan() {
+  try {
+    const r = await api("/api/scan", { limit: +limit });
+    toast(r.started ? `Scanning ${r.n} screenshot${r.n > 1 ? "s" : ""}… go make chai ☕` : r.message);
+    refresh();
+  } catch (e) { toast(e.message); }
+}
+async function stopScan() { await api("/api/scan/stop", {}); toast("Stopping after this screenshot. Everything so far is saved."); }
+
+async function loadEntries() {
+  if (!S.dir) return;
+  const p = new URLSearchParams();
+  if ($("#q").value.trim()) p.set("q", $("#q").value.trim());
+  try { entries = await api("/api/entries?" + p); } catch (e) { entries = []; }
+  byHash = Object.fromEntries(entries.map(e => [e.hash, e]));
+  renderOverview(); renderBrowse(); renderRisky();
+}
+
+function renderOverview() {
+  const r = S.report, el = $("#tab-overview");
+  if (!r || !r.total) {
+    el.innerHTML = `<div class="card empty"><div class="big">🦥</div><b>Nothing here yet</b><br>Press <b>Start scan</b> above, or let the 2 AM cron do it while you sleep.</div>`;
+    return;
+  }
+  const max = Math.max(...r.categories.map(c => c.count));
+  const hour = new Date().getHours();
+  const hello = hour < 12 ? "Good morning ☕" : hour < 17 ? "Good afternoon 🌤️" : "Good evening 🌙";
+  el.innerHTML = `
+    <div class="overview">
+      <div class="card panel">
+        <h2>${hello}</h2>
+        <p class="sub">Things you saved and probably forgot about:</p>
+        ${r.forgotten.length ? r.forgotten.map(e => `
+          <div class="forgot" onclick="openDetail('${esc(e.hash)}')">
+            ${thumb(e)}
+            <div><div class="t">${esc(e.title)}</div><div class="s">${esc(e.summary)}</div><div style="margin-top:5px">${tag(e.category)} <span class="date">${esc(e.date)}</span></div></div>
+          </div>`).join("") : `<p class="sub">Nothing pending. Look at you, all organised. 🎉</p>`}
+      </div>
+      <div class="card panel">
+        <h2>What's in your folder</h2>
+        <p class="sub">Click a category to browse it.</p>
+        <div class="bars">${r.categories.map(c => `
+          <div class="bar" onclick="browseCat('${c.category}')">
+            <span>${cat(c.category)[0]} ${esc(cat(c.category)[1])}</span>
+            <div class="track"><div class="fill" style="width:${100 * c.count / max}%;background:${cat(c.category)[3]}"></div></div>
+            <span class="c">${c.count}</span>
+          </div>`).join("")}</div>
+      </div>
+    </div>`;
+}
+
+function renderBrowse() {
+  const counts = {};
+  entries.forEach(e => counts[e.category] = (counts[e.category] || 0) + 1);
+  $("#chips").innerHTML = [`<button class="chip ${filter ? "" : "on"}" onclick="setFilter('')">All ${entries.length}</button>`]
+    .concat(Object.keys(CATS).filter(c => counts[c]).map(c => `<button class="chip ${filter === c ? "on" : ""}" onclick="setFilter('${c}')">${cat(c)[0]} ${esc(cat(c)[1])} ${counts[c]}</button>`)).join("");
+  const list = entries.filter(e => !filter || e.category === filter);
+  $("#grid").innerHTML = list.length ? list.map(e => `
+    <div class="card tile" onclick="openDetail('${esc(e.hash)}')">
+      ${thumb(e)}
+      <div class="body"><div class="t">${esc(e.title)}</div><div class="m">${tag(e.category)}<span class="date">${esc(e.date)}</span></div></div>
+    </div>`).join("") : `<div class="empty" style="grid-column:1/-1"><div class="big">🔍</div>${$("#q").value ? "Nothing matches that. Try another word." : "No screenshots here yet."}</div>`;
+}
+
+function renderRisky() {
+  const list = entries.filter(e => e.sensitive), el = $("#tab-risky");
+  if (!list.length) {
+    el.innerHTML = `<div class="card empty"><div class="big">🛡️</div><b>No risky screenshots found</b><br>No OTPs, bank details, ID numbers or passwords lying around.</div>`;
+    return;
+  }
+  el.innerHTML = `
+    <div class="risk-note">🧹 <div>These screenshots contain things that shouldn't sit in a folder forever. Values are shown masked. <b>SnapSloth never deletes anything</b>: use <b>Show in folder</b> and delete the ones you don't need yourself.</div></div>
+    ${list.map(e => `
+      <div class="card risk-row">
+        <div onclick="openDetail('${esc(e.hash)}')">${thumb(e)}</div>
+        <div class="info">
+          <div class="t">${esc(e.title)} <span class="date">· ${esc(e.date)}</span></div>
+          <div class="why">⚠️ ${esc(e.reason)}</div>
+          ${(e.tips || []).map(t => `<div class="tip">💡 ${esc(t)}</div>`).join("")}
+        </div>
+        <button class="btn small" onclick="reveal('${esc(e.hash)}')">Show in folder</button>
+      </div>`).join("")}`;
+}
+
+function setFilter(c) { filter = c; renderBrowse(); }
+function browseCat(c) { filter = c; $("#q").value = ""; switchTab("browse"); loadEntries(); }
+function switchTab(t) {
+  tab = t;
+  document.querySelectorAll(".tab").forEach(b => b.classList.toggle("on", b.dataset.tab === t));
+  ["overview", "browse", "risky"].forEach(x => $("#tab-" + x).hidden = x !== t);
+  history.replaceState(null, "", t === "overview" ? location.pathname : "#" + t);
+}
+async function reveal(h) { try { await api("/api/reveal/" + h, {}); toast("Opened the folder in your file manager"); } catch (e) { toast(e.message); } }
+
+function openModal(html) { $("#modal").innerHTML = html; $("#scrim").classList.add("open"); }
+function closeModal() { $("#scrim").classList.remove("open"); }
+$("#scrim").addEventListener("click", e => { if (e.target.id === "scrim") closeModal(); });
+document.addEventListener("keydown", e => { if (e.key === "Escape") closeModal(); });
+
+function openDetail(h) {
+  const e = byHash[h] || S.report.forgotten.find(x => x.hash === h);
+  if (!e) return;
+  openModal(`
+    <div class="modal-head"><div><h2>${esc(e.title)}</h2><div style="margin-top:6px">${tag(e.category)} <span class="date">${esc(e.date)}</span></div></div><button class="x" onclick="closeModal()">✕</button></div>
+    <div class="detail">
+      <div class="shot ${e.sensitive ? "secret" : ""}" id="shot">
+        <img src="/api/img/${esc(e.hash)}" alt="">
+        ${e.sensitive ? `<div class="reveal"><button class="btn" onclick="this.parentNode.remove();$('#shot').classList.remove('secret')">🔒 Contains sensitive info · show image</button></div>` : ""}
+      </div>
+      <div>
+        <div class="kv">Why you saved it</div><div>${esc(e.summary)}</div>
+        ${e.sensitive ? `<div class="kv" style="color:var(--risk)">Sensitive</div><div class="why" style="color:var(--risk);font-size:14px">⚠️ ${esc(e.reason || "")}</div>` : ""}
+        <div class="kv">Text in the image ${e.sensitive ? "(masked)" : ""}</div><pre>${esc(e.text) || "<i>no text</i>"}</pre>
+        <div class="kv">File</div><div class="path">${esc(S.home && e.abs?.startsWith(S.home + "/") ? "~" + e.abs.slice(S.home.length) : e.abs || e.path)}</div>
+        <div class="modal-foot" style="justify-content:flex-start"><button class="btn small" onclick="reveal('${esc(e.hash)}')">📂 Show in folder</button></div>
+      </div>
+    </div>`);
+}
+
+$("#sortBtn").onclick = async () => {
+  let p;
+  try { p = await api("/api/sort/preview", {}); } catch (e) { return toast(e.message); }
+  if (!p.moves.length) return toast(p.already ? "Everything is already sorted ✨" : "Nothing to sort yet");
+  const name = s => s.split("/").pop();
+  openModal(`
+    <div class="modal-head"><div><h2>Sort ${p.moves.length} screenshot${p.moves.length > 1 ? "s" : ""}?</h2><p class="sub" style="margin:4px 0 0;color:var(--muted)">Here's exactly what will move. Files are only renamed, never deleted or overwritten.</p></div><button class="x" onclick="closeModal()">✕</button></div>
+    <div class="moves">${p.moves.map(m => `<div class="move"><span class="from" title="${esc(m.from)}">${esc(name(m.from))}</span><span class="arrow">→</span><span class="to" title="${esc(m.to)}">${esc(m.to)}</span></div>`).join("")}</div>
+    <div class="modal-foot"><span class="hint">You can undo this with one click.</span><button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" id="doSort">Move ${p.moves.length} files</button></div>`);
+  $("#doSort").onclick = async () => {
+    try {
+      const r = await api("/api/sort", {});
+      closeModal();
+      toast(`Moved ${r.moved} files ✨${r.skipped.length ? ` (${r.skipped.length} skipped)` : ""} · Undo anytime`);
+      lastSig = ""; refresh();
+    } catch (e) { toast(e.message); }
+  };
+};
+
+$("#undoBtn").onclick = async () => {
+  if (!confirm("Put every file from the last sort back where it was?")) return;
+  try {
+    const r = await api("/api/undo", {});
+    toast(`Moved ${r.moved} files back${r.skipped.length ? ` (${r.skipped.length} skipped)` : ""}`);
+    lastSig = ""; refresh();
+  } catch (e) { toast(e.message); }
+};
+
+async function setDir() {
+  try { await api("/api/folder", { dir: $("#dir").value }); $("#dir").blur(); lastSig = ""; filter = ""; refresh(); }
+  catch (e) { toast(e.message); }
+}
+$("#setdir").onclick = setDir;
+$("#dir").addEventListener("keydown", e => { if (e.key === "Enter") setDir(); });
+document.querySelectorAll(".tab").forEach(b => b.onclick = () => switchTab(b.dataset.tab));
+let qt;
+$("#q").addEventListener("input", () => { clearTimeout(qt); qt = setTimeout(loadEntries, 220); });
+
+if (["browse", "risky"].includes(location.hash.slice(1))) switchTab(location.hash.slice(1));
+(function loop() { refresh().finally(() => setTimeout(loop, S.job?.running ? 1500 : 4000)); })();
+</script>
+</body>
+</html>
