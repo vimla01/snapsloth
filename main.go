@@ -17,7 +17,9 @@ Usage:
 Commands:
   scan <dir>      analyse new screenshots with the local model
                   [--model gemma4:e4b] [--host URL] [--limit N] [--dry-run]
-  help            show this help
+  sort <dir>      move into sorted/<category>/YYYY-MM-DD_<title>.<ext> [--dry-run]
+  undo <dir>      reverse the last sort [--dry-run]
+  help           show this help
 `
 
 func main() {
@@ -30,6 +32,10 @@ func main() {
 	switch cmd {
 	case "scan":
 		err = cmdScan(args)
+	case "sort":
+		err = cmdSort(args)
+	case "undo":
+		err = cmdUndo(args)
 	case "help", "-h", "--help":
 		fmt.Print(usageText)
 	default:
